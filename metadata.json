@@ -1,0 +1,6 @@
+{
+  "name": "MULTIVIEW",
+  "description": "Plataforma PWA de reproducción simultánea de video y streaming en múltiples recuadros ajustables con gestión global de audio y soporte para múltiples fuentes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
