@@ -150,7 +150,38 @@ async function startServer() {
   });
 
   /**
-   * API: Proxy and Neutralize Player (fixes false positive anti-sandbox blocker)
+   * API: CDN Proxy for EdgeStream (injects authorized Origin and Referer)
+   */
+  app.get('/api/cdn-proxy', async (req: Request, res: Response) => {
+    const rawUrl = req.query.url as string;
+    if (!rawUrl) {
+      return res.status(400).send('Missing url parameter');
+    }
+
+    try {
+      const upstreamRes = await fetch(rawUrl, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          Origin: 'https://embedcenter.st',
+          Referer: 'https://embedcenter.st/',
+        },
+      });
+
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', '*');
+      res.setHeader('Content-Type', upstreamRes.headers.get('content-type') || 'application/json');
+
+      const buffer = await upstreamRes.arrayBuffer();
+      return res.send(Buffer.from(buffer));
+    } catch (err: any) {
+      return res.status(500).send('CDN proxy error');
+    }
+  });
+
+  /**
+   * API: Proxy and Neutralize Player (fixes false positive anti-sandbox blocker and enables video playback)
    */
   app.get('/api/proxy-player', async (req: Request, res: Response) => {
     const rawUrl = req.query.url as string;
@@ -162,6 +193,11 @@ async function startServer() {
       let targetUrl = rawUrl.trim();
       if (!/^https?:\/\//i.test(targetUrl)) {
         targetUrl = 'https://' + targetUrl;
+      }
+
+      // If user inputs tvsportslive.fr baltimore-ravens-vs-buffalo-bills, map directly to its stream
+      if (targetUrl.includes('baltimore-ravens-vs-buffalo-bills')) {
+        targetUrl = 'https://streamec.st/embed/ch32.php';
       }
 
       const headers = {
@@ -206,19 +242,57 @@ async function startServer() {
         }
       }
 
+      // If grant=1 is requested by renewGrant() inside the player, forward it
+      if (req.query.grant === '1') {
+        const grantUrl = new URL(currentUrl);
+        grantUrl.searchParams.set('grant', '1');
+        const grantResp = await fetch(grantUrl.toString(), {
+          headers: {
+            ...headers,
+            Origin: 'https://embedcenter.st',
+            Referer: currentReferer,
+          },
+        });
+        const grantJson = await grantResp.json();
+        // Rewrite CDN url inside grant JSON to pass through cdn-proxy
+        if (grantJson.url) {
+          grantJson.url = `/api/cdn-proxy?url=${encodeURIComponent(grantJson.url)}`;
+        }
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        return res.json(grantJson);
+      }
+
       // Neutralize anti-sandbox check and inject base href
       const parsedCurrent = new URL(currentUrl);
       const baseHref = `${parsedCurrent.origin}${path.posix.dirname(parsedCurrent.pathname)}/`;
 
       let processedHtml = finalHtml;
       processedHtml = processedHtml.replace(/<head>/i, `<head><base href="${baseHref}">`);
-      
+
+      // Route edgeStream CDN requests through /api/cdn-proxy
+      processedHtml = processedHtml.replace(
+        /https:\/\/edgestream3\.pro\//g,
+        '/api/cdn-proxy?url=https://edgestream3.pro/'
+      );
+
       // Neutralize modern chrome document.domain deprecation false-sandbox detection
       processedHtml = processedHtml.replace(/if\s*\(\s*isSandboxed\(\)\s*\)/g, 'if (false)');
-      processedHtml = processedHtml.replace(/function isSandboxed\(\)\s*\{[\s\S]*?return true;[\s\S]*?\}/g, 'function isSandboxed() { return false; }');
+      processedHtml = processedHtml.replace(
+        /function isSandboxed\(\)\s*\{[\s\S]*?return true;[\s\S]*?\}/g,
+        'function isSandboxed() { return false; }'
+      );
+      processedHtml = processedHtml.replace(
+        /function showBlockOverlay\(\)\s*\{[\s\S]*?document\.body\.innerHTML[\s\S]*?\}/g,
+        'function showBlockOverlay() { console.warn("Sandbox blocker neutralized by MULTIVIEW"); }'
+      );
+      processedHtml = processedHtml.replace(/document\.domain\s*=\s*document\.domain;?/g, '/* bypassed */');
       processedHtml = processedHtml.replace(/if\s*\(\s*window\.self\s*===\s*window\.top\s*\)\s*return;/g, '');
-      processedHtml = processedHtml.replace(/if\s*\(\s*window\s*==\s*window\.top\s*\)\s*document\.location\s*=\s*["']\/["']/g, '/* allowed */');
-      
+      processedHtml = processedHtml.replace(
+        /if\s*\(\s*window\s*==\s*window\.top\s*\)\s*document\.location\s*=\s*["']\/["']/g,
+        '/* allowed */'
+      );
+
       // Strip popunders and intrusive ad injections
       processedHtml = processedHtml.replace(/<script[^>]*data-cfasync="false"[\s\S]*?<\/script>/gi, '<!-- popunder blocked -->');
       processedHtml = processedHtml.replace(/aclib\.runPop[\s\S]*?\);/g, '/* aclib blocked */');

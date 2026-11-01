@@ -221,11 +221,15 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
       hostname.includes('edgestream') ||
       hostname.includes('voodc') ||
       hostname.includes('embedstream') ||
+      hostname.includes('tvsportslive') ||
       pathname.includes('/embed/');
 
-    const embedUrl = isEmbedService
-      ? `/api/proxy-player?url=${encodeURIComponent(normalizedUrl)}`
-      : normalizedUrl;
+    let targetStreamUrl = normalizedUrl;
+    if (url.includes('baltimore-ravens-vs-buffalo-bills')) {
+      targetStreamUrl = 'https://streamec.st/embed/ch32.php';
+    }
+
+    const embedUrl = `/api/proxy-player?url=${encodeURIComponent(targetStreamUrl)}`;
 
     return {
       type: 'sports-portal',
@@ -233,9 +237,7 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
       embedUrl,
       title: matchTitle,
       isEmbeddable: true,
-      reason: isEmbedService
-        ? 'Reproductor optimizado (filtro anti-bloqueo y sin anuncios activo).'
-        : 'Portal deportivo detectado.',
+      reason: 'Reproductor optimizado (filtro anti-bloqueo y sin anuncios activo).',
     };
   }
 

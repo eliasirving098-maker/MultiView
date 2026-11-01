@@ -121,6 +121,28 @@ export const SportsStreamHelper: React.FC<SportsStreamHelperProps> = ({
           </span>
         </div>
 
+        {/* Ravens vs Bills quick link to CH-32 */}
+        {targetUrl.includes('baltimore-ravens-vs-buffalo-bills') && (
+          <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 mb-3 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+              <Zap className="w-4 h-4 fill-current" />
+              <span>Canal Directo Detectado (Ravens vs Bills):</span>
+            </div>
+            <p className="text-[11px] text-slate-300">
+              Este partido se emite a través de la señal StreamEC Canal 32 (<code className="text-emerald-400 font-mono">streamec.st/embed/ch32.php</code>).
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                onClick={() => onReplaceUrl('https://streamec.st/embed/ch32.php')}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-md"
+              >
+                <Tv className="w-3.5 h-3.5" />
+                <span>Cargar Canal 32 en MULTIVIEW</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Auto-resolved streams banner (if server found inner iframe or m3u8) */}
         {resolvedData && resolvedData.status === 'success' && (
           <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/40 mb-3 space-y-2">
