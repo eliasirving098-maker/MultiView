@@ -186,6 +186,7 @@ export function parseIframeSnippet(input: string): ParsedIframeResult {
         referrerPolicy: rawReferrerPolicy,
         title: rawTitle || undefined,
         originalSnippet: trimmed,
+        sandboxMode: 'no-sandbox',
       },
     };
   } catch (err: any) {

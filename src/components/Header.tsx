@@ -16,6 +16,7 @@ import {
   AlertCircle,
   Activity,
   Layers,
+  ExternalLink,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { MiniLayoutDiagram } from './LayoutSelector';
@@ -176,6 +177,18 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Bookmark className="w-3.5 h-3.5 text-emerald-400" />
             <span className="hidden lg:inline text-xs">Guardados</span>
+          </button>
+
+          {/* Standalone Browser Tab (Zero Sandbox Parent Inheritance) */}
+          <button
+            onClick={() => {
+              window.open(window.location.href, '_blank', 'noopener,noreferrer');
+            }}
+            title="Abrir MULTIVIEW en una pestaña independiente del navegador (sin restricciones de sandbox del contenedor padre)"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs transition"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden xl:inline text-xs">Pestaña Completa</span>
           </button>
 
           {/* Fullscreen API Toggle */}

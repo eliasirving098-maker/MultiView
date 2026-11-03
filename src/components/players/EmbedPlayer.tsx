@@ -31,6 +31,24 @@ export const EmbedPlayer: React.FC<EmbedPlayerProps> = ({
   const referrerPolicy: ReferrerPolicy = customAttrs.referrerPolicy || 'no-referrer-when-downgrade';
   const allowFullScreen = customAttrs.allowFullScreen !== false;
 
+  // External player compatibility mode:
+  // - 'standard': Enforces controlled sandbox
+  // - 'no-sandbox' (default): Absolutely NO sandbox attribute is added to the iframe tag, allowing
+  //   external players (AuraSports, Streamec, Clappr, JWPlayer) to load their subframes, workers, and decoders.
+  const isNoSandbox = slot.sandboxMode !== 'standard';
+  const sandboxAttribute = isNoSandbox
+    ? undefined
+    : 'allow-scripts allow-same-origin allow-forms allow-presentation';
+
+  // Ensure absolute absence of sandbox attribute in DOM when in no-sandbox mode
+  useEffect(() => {
+    if (iframeRef.current && isNoSandbox) {
+      if (iframeRef.current.hasAttribute('sandbox')) {
+        iframeRef.current.removeAttribute('sandbox');
+      }
+    }
+  }, [isNoSandbox, slot.reloadKey]);
+
   // Register with globalAudioManager to mute when another stream is unmuted
   useEffect(() => {
     const unregister = globalAudioManager.registerIframeController(slot.id, (shouldBeMuted) => {
@@ -48,12 +66,13 @@ export const EmbedPlayer: React.FC<EmbedPlayerProps> = ({
     <div className="w-full h-full relative bg-black overflow-hidden flex items-center justify-center group/embed">
       <iframe
         ref={iframeRef}
-        key={`embed-${slot.id}-${slot.reloadKey}`}
+        key={`embed-${slot.id}-${slot.reloadKey}-${slot.sandboxMode || 'no-sandbox'}`}
         src={targetSrc}
         title={customAttrs.title || slot.title || 'Reproductor Embed'}
         allow={allowPermissions}
         allowFullScreen={allowFullScreen}
         referrerPolicy={referrerPolicy}
+        sandbox={sandboxAttribute}
         className="w-full h-full border-0 pointer-events-auto bg-black m-0 p-0 block"
         style={{
           width: '100%',

@@ -21,23 +21,26 @@ import {
 import { detectStreamSource, SAMPLE_STREAMS } from '../services/streamDetector';
 import { isIframeSnippet, parseIframeSnippet } from '../services/iframeParser';
 import { storageService } from '../services/storageService';
-import { HistoryItem, StreamType } from '../types/stream';
+import { HistoryItem, SandboxMode, StreamType } from '../types/stream';
 
 interface StreamInputProps {
   channelIndex: number;
   initialUrl?: string;
-  onConfirm: (url: string, manualOverrideType?: StreamType) => void;
+  initialSandboxMode?: SandboxMode;
+  onConfirm: (url: string, manualOverrideType?: StreamType, sandboxMode?: SandboxMode) => void;
   onCancel?: () => void;
 }
 
 export const StreamInput: React.FC<StreamInputProps> = ({
   channelIndex,
   initialUrl = '',
+  initialSandboxMode = 'no-sandbox',
   onConfirm,
   onCancel,
 }) => {
   const [url, setUrl] = useState(initialUrl);
   const [manualType, setManualType] = useState<'auto' | StreamType>('auto');
+  const [sandboxMode, setSandboxMode] = useState<SandboxMode>(initialSandboxMode);
   const [activeTab, setActiveTab] = useState<'custom' | 'samples' | 'history'>('custom');
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
@@ -53,12 +56,12 @@ export const StreamInput: React.FC<StreamInputProps> = ({
     if (e) e.preventDefault();
     if (!url.trim()) return;
     const override = manualType === 'auto' ? undefined : manualType;
-    onConfirm(url.trim(), override);
+    onConfirm(url.trim(), override, sandboxMode);
   };
 
   const handleSelectPredefined = (selectedUrl: string, selectedType?: StreamType) => {
     setUrl(selectedUrl);
-    onConfirm(selectedUrl, selectedType);
+    onConfirm(selectedUrl, selectedType, 'no-sandbox');
   };
 
   return (
@@ -236,6 +239,29 @@ export const StreamInput: React.FC<StreamInputProps> = ({
               <option value="vimeo">Vimeo SDK</option>
               <option value="web-page">Página Web Completa</option>
             </select>
+          </div>
+
+          {/* External Player Compatibility (Sandbox Control) */}
+          <div className="p-2.5 rounded-xl bg-[#101114] border border-white/5 text-xs space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-300 font-medium flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Compatibilidad del reproductor externo:</span>
+              </span>
+              <select
+                value={sandboxMode}
+                onChange={(e) => setSandboxMode(e.target.value as SandboxMode)}
+                className="bg-[#191b20] border border-white/10 text-white text-[11px] rounded-lg px-2.5 py-1 font-mono focus:outline-none focus:border-emerald-500"
+              >
+                <option value="no-sandbox">Compatibilidad sin sandbox (Recomendado)</option>
+                <option value="standard">Protección estándar (Con sandbox)</option>
+              </select>
+            </div>
+            <p className="text-[10px] text-slate-400 leading-normal">
+              {sandboxMode === 'no-sandbox'
+                ? 'El iframe se genera sin atributo sandbox. Permite decodificadores y workers de AuraSports, Streamec, Clappr, etc.'
+                : 'Aplica sandbox restrictivo. Puede bloquear la reproducción si el proveedor requiere subframes o workers.'}
+            </p>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">

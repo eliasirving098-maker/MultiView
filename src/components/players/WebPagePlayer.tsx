@@ -25,6 +25,23 @@ export const WebPagePlayer: React.FC<WebPagePlayerProps> = ({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const targetSrc = slot.embedUrl || slot.url;
 
+  // External player compatibility mode:
+  // - 'standard': Enforces controlled sandbox
+  // - 'no-sandbox' (default): Absolutely NO sandbox attribute is added to the iframe tag.
+  const isNoSandbox = slot.sandboxMode !== 'standard';
+  const sandboxAttribute = isNoSandbox
+    ? undefined
+    : 'allow-scripts allow-same-origin allow-forms allow-presentation';
+
+  // Ensure absolute absence of sandbox attribute in DOM when in no-sandbox mode
+  useEffect(() => {
+    if (iframeRef.current && isNoSandbox) {
+      if (iframeRef.current.hasAttribute('sandbox')) {
+        iframeRef.current.removeAttribute('sandbox');
+      }
+    }
+  }, [isNoSandbox, slot.reloadKey]);
+
   // Register with globalAudioManager to mute when another stream is unmuted
   useEffect(() => {
     const unregister = globalAudioManager.registerIframeController(slot.id, (shouldBeMuted) => {
@@ -42,12 +59,13 @@ export const WebPagePlayer: React.FC<WebPagePlayerProps> = ({
     <div className="w-full h-full relative bg-black overflow-hidden flex items-center justify-center group/webpage">
       <iframe
         ref={iframeRef}
-        key={`webpage-${slot.id}-${slot.reloadKey}`}
+        key={`webpage-${slot.id}-${slot.reloadKey}-${slot.sandboxMode || 'no-sandbox'}`}
         src={targetSrc}
         title={slot.title || 'Página Web Externa'}
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
         allowFullScreen
         referrerPolicy="no-referrer-when-downgrade"
+        sandbox={sandboxAttribute}
         className="w-full h-full border-0 pointer-events-auto bg-white/5 block m-0 p-0"
         onLoad={() => {
           onStatusChange?.(

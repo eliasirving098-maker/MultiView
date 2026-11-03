@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { detectStreamSource } from '../services/streamDetector';
 import { storageService } from '../services/storageService';
 import { globalAudioManager } from '../services/audioManager';
-import { SavedPreset, StreamSlot, StreamType } from '../types/stream';
+import { SavedPreset, SandboxMode, StreamSlot, StreamType } from '../types/stream';
 
 const DEFAULT_SLOT_COUNT = 4;
 
@@ -21,6 +21,7 @@ function createEmptySlots(count: number): StreamSlot[] {
     type: 'unsupported',
     classification: 'unsupported',
     diagnosticCode: 'none',
+    sandboxMode: 'no-sandbox',
     isMuted: true,
     isPlaying: false,
     volume: 1,
@@ -51,6 +52,7 @@ export function useStreams(initialCount?: number) {
             title: item.title || detected.title,
             type: detected.type,
             classification: detected.classification,
+            sandboxMode: (item as any).sandboxMode || 'no-sandbox',
             videoId: detected.videoId,
             channel: detected.channel,
             status: detected.type === 'blob-resource' ? 'error' : 'loading',
@@ -72,37 +74,42 @@ export function useStreams(initialCount?: number) {
     storageService.saveStreamCount(streamCount);
   }, [slots, streamCount]);
 
-  const addStream = useCallback((index: number, rawUrl: string, manualOverrideType?: StreamType) => {
-    const detected = detectStreamSource(rawUrl);
+  const addStream = useCallback(
+    (index: number, rawUrl: string, manualOverrideType?: StreamType, sandboxMode?: SandboxMode) => {
+      const detected = detectStreamSource(rawUrl);
 
-    setSlots((prev) => {
-      const updated = [...prev];
-      if (index >= 0 && index < updated.length) {
-        const finalType = manualOverrideType || detected.type;
-        updated[index] = {
-          ...updated[index],
-          url: detected.embedUrl || rawUrl,
-          originalInput: rawUrl,
-          title: detected.title || `Stream ${index + 1}`,
-          type: finalType,
-          classification: detected.classification,
-          customIframeAttributes: detected.customIframeAttributes,
-          manualOverrideType,
-          videoId: detected.videoId,
-          channel: detected.channel,
-          status: detected.type === 'blob-resource' ? 'error' : 'loading',
-          diagnosticCode: detected.diagnosticCode || 'none',
-          errorMessage: detected.reason,
-          reloadKey: updated[index].reloadKey + 1,
-        };
+      setSlots((prev) => {
+        const updated = [...prev];
+        if (index >= 0 && index < updated.length) {
+          const finalType = manualOverrideType || detected.type;
+          const finalSandboxMode: SandboxMode = sandboxMode || detected.sandboxMode || 'no-sandbox';
+          updated[index] = {
+            ...updated[index],
+            url: detected.embedUrl || rawUrl,
+            originalInput: rawUrl,
+            title: detected.title || `Stream ${index + 1}`,
+            type: finalType,
+            classification: detected.classification,
+            customIframeAttributes: detected.customIframeAttributes,
+            manualOverrideType,
+            sandboxMode: finalSandboxMode,
+            videoId: detected.videoId,
+            channel: detected.channel,
+            status: detected.type === 'blob-resource' ? 'error' : 'loading',
+            diagnosticCode: detected.diagnosticCode || 'none',
+            errorMessage: detected.reason,
+            reloadKey: updated[index].reloadKey + 1,
+          };
+        }
+        return updated;
+      });
+
+      if (detected.type !== 'unsupported') {
+        storageService.addToHistory(rawUrl, detected.title, detected.type, detected.classification);
       }
-      return updated;
-    });
-
-    if (detected.type !== 'unsupported') {
-      storageService.addToHistory(rawUrl, detected.title, detected.type, detected.classification);
-    }
-  }, []);
+    },
+    []
+  );
 
   const removeStream = useCallback((index: number) => {
     setSlots((prev) => {

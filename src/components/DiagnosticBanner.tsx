@@ -89,8 +89,8 @@ export const DiagnosticBanner: React.FC<DiagnosticBannerProps> = ({
           icon: <AlertTriangle className="w-6 h-6 text-rose-400" />,
           color: 'border-rose-500/40 bg-rose-950/20 text-rose-200',
           message:
-            'El navegador no pudo cargar el marco externo. Puede deberse a un enlace no disponible, restricciones de dominio o políticas de red del proveedor.',
-          actionHelp: 'Verifica la URL o prueba a abrir el documento directamente.',
+            'El navegador no pudo cargar el marco externo. Puede deberse a restricciones de dominio, políticas de red o requerimiento de Compatibilidad sin sandbox del proveedor.',
+          actionHelp: 'Verifica la URL, activa "Compatibilidad sin sandbox" en el icono de escudo del canal, o pulsa "Ventana Flotante".',
         };
 
       case 'initialization-error':

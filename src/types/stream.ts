@@ -35,12 +35,15 @@ export type DiagnosticCode =
   | 'timeout'
   | 'unobservable-cross-origin';
 
+export type SandboxMode = 'standard' | 'no-sandbox';
+
 export interface CustomIframeAttributes {
   allow?: string;
   allowFullScreen?: boolean;
   referrerPolicy?: ReferrerPolicy;
   title?: string;
   originalSnippet?: string;
+  sandboxMode?: SandboxMode;
 }
 
 export interface StreamSlot {
@@ -54,6 +57,7 @@ export interface StreamSlot {
   embedUrl?: string;
   customIframeAttributes?: CustomIframeAttributes;
   manualOverrideType?: StreamType;
+  sandboxMode?: SandboxMode;
   videoId?: string;
   channel?: string;
   isMuted: boolean;
@@ -73,6 +77,7 @@ export interface StreamDetectionResult {
   embedUrl: string;
   title: string;
   customIframeAttributes?: CustomIframeAttributes;
+  sandboxMode?: SandboxMode;
   videoId?: string;
   channel?: string;
   isEmbeddable: boolean;

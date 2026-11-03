@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
-import { Plus, Tv, ArrowLeft, Pin, Maximize2 } from 'lucide-react';
-import { StreamSlot, StreamType } from '../types/stream';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Plus, Tv, ArrowLeft, Pin } from 'lucide-react';
+import { SandboxMode, StreamSlot, StreamType } from '../types/stream';
 import { StreamPlayer } from './StreamPlayer';
 import { StreamControls } from './StreamControls';
 import { StreamInput } from './StreamInput';
@@ -17,11 +17,228 @@ interface StreamGridProps {
   activeAudioSlotId: string | null;
   onToggleAudio: (slotId: string) => void;
   onSetMaximizedSlot: (slotId: string | null) => void;
-  onAddStream: (index: number, url: string, manualOverrideType?: StreamType) => void;
+  onAddStream: (index: number, url: string, manualOverrideType?: StreamType, sandboxMode?: SandboxMode) => void;
   onRemoveStream: (index: number) => void;
   onReloadStream: (index: number) => void;
   onUpdateSlot: (index: number, patch: Partial<StreamSlot>) => void;
 }
+
+interface StreamSlotTileProps {
+  slot: StreamSlot;
+  index: number;
+  isFocusMode: boolean;
+  maximizedSlotId: string | null;
+  activeAudioSlotId: string | null;
+  isEditing: boolean;
+  onSetEditingSlotIndex: (index: number | null) => void;
+  onSetMaximizedSlot: (slotId: string | null) => void;
+  onToggleAudio: (slotId: string) => void;
+  onAddStream: (index: number, url: string, manualOverrideType?: StreamType, sandboxMode?: SandboxMode) => void;
+  onRemoveStream: (index: number) => void;
+  onReloadStream: (index: number) => void;
+  onUpdateSlot: (index: number, patch: Partial<StreamSlot>) => void;
+  slotStyle: React.CSSProperties;
+  standardSpanClass: string;
+}
+
+const StreamSlotTile: React.FC<StreamSlotTileProps> = ({
+  slot,
+  index,
+  isFocusMode,
+  maximizedSlotId,
+  activeAudioSlotId,
+  isEditing,
+  onSetEditingSlotIndex,
+  onSetMaximizedSlot,
+  onToggleAudio,
+  onAddStream,
+  onRemoveStream,
+  onReloadStream,
+  onUpdateSlot,
+  slotStyle,
+  standardSpanClass,
+}) => {
+  const isSlotFocused = isFocusMode && slot.id === maximizedSlotId;
+  const isSecondaryInFocusMode = isFocusMode && !isSlotFocused;
+  const isAudioActive = activeAudioSlotId === slot.id;
+  const hasStream = Boolean(slot.url && slot.type !== 'unsupported');
+
+  // Auto-hide controls after 2.5 seconds of user inactivity
+  const [isControlsVisible, setIsControlsVisible] = useState(false);
+  const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const resetControlsTimer = useCallback(() => {
+    setIsControlsVisible(true);
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+    }
+    hideTimerRef.current = setTimeout(() => {
+      setIsControlsVisible(false);
+    }, 2500);
+  }, []);
+
+  // Show controls briefly when stream loads or changes, then auto-hide
+  useEffect(() => {
+    if (hasStream) {
+      resetControlsTimer();
+    }
+    return () => {
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+      }
+    };
+  }, [hasStream, slot.url, slot.reloadKey, resetControlsTimer]);
+
+  const handleMouseLeave = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+    }
+    // Smoothly fade out when cursor leaves the tile
+    hideTimerRef.current = setTimeout(() => {
+      setIsControlsVisible(false);
+    }, 350);
+  };
+
+  return (
+    <div
+      style={slotStyle}
+      onMouseMove={resetControlsTimer}
+      onMouseEnter={resetControlsTimer}
+      onMouseLeave={handleMouseLeave}
+      onTouchStart={resetControlsTimer}
+      onClick={() => {
+        resetControlsTimer();
+        // Clicking a secondary stream in Focus Mode smoothly converts it into the main hero stream!
+        if (isSecondaryInFocusMode && hasStream && !isEditing) {
+          onSetMaximizedSlot(slot.id);
+        }
+      }}
+      className={`relative rounded-xl overflow-hidden bg-[#191b20] border transition-all duration-200 flex flex-col group min-h-0 ${
+        isSlotFocused
+          ? 'border-emerald-500/60 shadow-2xl ring-2 ring-emerald-500/40 z-20'
+          : isSecondaryInFocusMode
+          ? 'border-white/10 hover:border-emerald-500/50 hover:shadow-lg hover:shadow-emerald-950/30 cursor-pointer'
+          : `${standardSpanClass} ${
+              isAudioActive
+                ? 'border-emerald-500/50 shadow-md shadow-emerald-950/20'
+                : 'border-white/10 hover:border-white/20'
+            }`
+      }`}
+    >
+      {/* Secondary stream hover badge in Focus Mode - auto hides when inactive */}
+      {isSecondaryInFocusMode && hasStream && !isEditing && (
+        <div
+          className={`absolute top-2 right-2 z-25 transition-all duration-300 pointer-events-none ${
+            isControlsVisible
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 -translate-y-1'
+          }`}
+        >
+          <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/80 text-[10px] font-mono font-bold text-emerald-400 border border-emerald-500/40 shadow-lg backdrop-blur-xs">
+            <Pin className="w-3 h-3" />
+            Hacer principal
+          </span>
+        </div>
+      )}
+
+      {/* Empty slot state */}
+      {!hasStream && !isEditing && (
+        <div className="w-full h-full min-h-[140px] flex flex-col items-center justify-center p-4 text-center bg-[#15171c]/60 hover:bg-[#191b20] transition group/empty">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 group-hover/empty:text-emerald-400 group-hover/empty:border-emerald-500/40 group-hover/empty:bg-emerald-500/10 transition mb-2.5 shadow-inner">
+            <Tv className="w-5 h-5 sm:w-6 sm:h-6" />
+          </div>
+          <div className="text-[11px] sm:text-xs font-mono font-semibold text-slate-400 uppercase tracking-widest mb-1">
+            CANAL {index + 1}
+          </div>
+          <p className="text-[10px] sm:text-[11px] text-slate-500 mb-3 max-w-[180px]">
+            Espacio disponible para transmisión
+          </p>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSetEditingSlotIndex(index);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500/90 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-lg shadow-emerald-950/40 hover:scale-[1.02] cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ AGREGAR</span>
+          </button>
+        </div>
+      )}
+
+      {/* Editing slot URL */}
+      {isEditing && (
+        <div
+          className="w-full h-full flex items-center justify-center p-2 bg-[#121418] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <StreamInput
+            channelIndex={index}
+            initialUrl={slot.originalInput || slot.url}
+            initialSandboxMode={slot.sandboxMode || 'no-sandbox'}
+            onConfirm={(newUrl, manualOverrideType, sandboxMode) => {
+              onAddStream(index, newUrl, manualOverrideType, sandboxMode);
+              onSetEditingSlotIndex(null);
+            }}
+            onCancel={() => onSetEditingSlotIndex(null)}
+          />
+        </div>
+      )}
+
+      {/* Active stream player with auto-hiding controls */}
+      {hasStream && !isEditing && (
+        <>
+          <div className="w-full h-full relative flex-1 min-h-0">
+            <StreamPlayer
+              slot={slot}
+              isUnmuted={isAudioActive}
+              onStatusChange={(status, diagnosticCode, error) => {
+                onUpdateSlot(index, { status, diagnosticCode, errorMessage: error });
+              }}
+              onRetry={() => onReloadStream(index)}
+              onEditUrl={() => onSetEditingSlotIndex(index)}
+              onReplaceUrl={(newUrl) => onAddStream(index, newUrl)}
+            />
+          </div>
+
+          <StreamControls
+            slot={slot}
+            isMaximized={isSlotFocused}
+            isAudioActive={isAudioActive}
+            isVisible={isControlsVisible}
+            onUserInteraction={resetControlsTimer}
+            onUpdateSlot={(patch) => onUpdateSlot(index, patch)}
+            onToggleAudio={() => {
+              resetControlsTimer();
+              onToggleAudio(slot.id);
+            }}
+            onToggleMaximize={() => {
+              resetControlsTimer();
+              // Toggle focus mode: if already focused, restore balanced grid; if not, make it principal
+              onSetMaximizedSlot(isSlotFocused ? null : slot.id);
+            }}
+            onReload={() => {
+              resetControlsTimer();
+              onReloadStream(index);
+            }}
+            onEdit={() => onSetEditingSlotIndex(index)}
+            onClose={() => onRemoveStream(index)}
+            onToggleAspectRatio={() => {
+              resetControlsTimer();
+              const next =
+                slot.aspectRatio === 'contain'
+                  ? 'cover'
+                  : slot.aspectRatio === 'cover'
+                  ? '16/9'
+                  : 'contain';
+              onUpdateSlot(index, { aspectRatio: next });
+            }}
+          />
+        </>
+      )}
+    </div>
+  );
+};
 
 export const StreamGrid: React.FC<StreamGridProps> = ({
   streamCount,
@@ -40,6 +257,36 @@ export const StreamGrid: React.FC<StreamGridProps> = ({
     typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   );
 
+  // Auto-hide Focus Mode Banner after 2.5s of inactivity
+  const [isFocusBannerVisible, setIsFocusBannerVisible] = useState(true);
+  const focusBannerTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const resetFocusBannerTimer = useCallback(() => {
+    setIsFocusBannerVisible(true);
+    if (focusBannerTimerRef.current) {
+      clearTimeout(focusBannerTimerRef.current);
+    }
+    focusBannerTimerRef.current = setTimeout(() => {
+      setIsFocusBannerVisible(false);
+    }, 2500);
+  }, []);
+
+  const activeSlots = slots.slice(0, streamCount);
+  const isFocusMode = maximizedSlotId !== null && activeSlots.some((s) => s.id === maximizedSlotId);
+  const secondarySlots = activeSlots.filter((s) => s.id !== maximizedSlotId);
+  const secondaryCount = secondarySlots.length;
+
+  useEffect(() => {
+    if (isFocusMode) {
+      resetFocusBannerTimer();
+    }
+    return () => {
+      if (focusBannerTimerRef.current) {
+        clearTimeout(focusBannerTimerRef.current);
+      }
+    };
+  }, [isFocusMode, maximizedSlotId, resetFocusBannerTimer]);
+
   useEffect(() => {
     const handleResize = () => {
       setIsDesktop(window.innerWidth >= 768);
@@ -47,11 +294,6 @@ export const StreamGrid: React.FC<StreamGridProps> = ({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-
-  const activeSlots = slots.slice(0, streamCount);
-  const isFocusMode = maximizedSlotId !== null && activeSlots.some((s) => s.id === maximizedSlotId);
-  const secondarySlots = activeSlots.filter((s) => s.id !== maximizedSlotId);
-  const secondaryCount = secondarySlots.length;
 
   // Standard Balanced Grid classes when Focus Mode is NOT active
   const getStandardGridClasses = () => {
@@ -155,10 +397,27 @@ export const StreamGrid: React.FC<StreamGridProps> = ({
   const focusedSlot = slots.find((s) => s.id === maximizedSlotId);
 
   return (
-    <div className="relative w-full h-full flex flex-col p-1.5 sm:p-2 bg-[#101114] overflow-hidden select-none">
-      {/* Top Banner when in Focus Mode (Google Meet / Zoom stage) */}
+    <div
+      onMouseMove={isFocusMode ? resetFocusBannerTimer : undefined}
+      onTouchStart={isFocusMode ? resetFocusBannerTimer : undefined}
+      className="relative w-full h-full flex flex-col p-1.5 sm:p-2 bg-[#101114] overflow-hidden select-none"
+    >
+      {/* Top Banner when in Focus Mode (Google Meet / Zoom stage) - auto hides on idle */}
       {isFocusMode && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-black/85 backdrop-blur-md border border-emerald-500/40 shadow-2xl animate-fade-in pointer-events-auto">
+        <div
+          onMouseEnter={() => {
+            setIsFocusBannerVisible(true);
+            if (focusBannerTimerRef.current) {
+              clearTimeout(focusBannerTimerRef.current);
+            }
+          }}
+          onMouseLeave={resetFocusBannerTimer}
+          className={`absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-black/85 backdrop-blur-md border border-emerald-500/40 shadow-2xl transition-all duration-300 pointer-events-auto ${
+            isFocusBannerVisible
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 -translate-y-3 pointer-events-none'
+          }`}
+        >
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <div className="flex items-center gap-1.5 text-xs text-white">
             <span className="font-bold text-emerald-400">ENFOQUE:</span>
@@ -169,7 +428,7 @@ export const StreamGrid: React.FC<StreamGridProps> = ({
           <button
             onClick={() => onSetMaximizedSlot(null)}
             title="Volver a cuadrícula equilibrada (Tecla ESC)"
-            className="ml-2 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-sm"
+            className="ml-2 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-sm cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Restaurar Cuadrícula (ESC)</span>
@@ -186,131 +445,26 @@ export const StreamGrid: React.FC<StreamGridProps> = ({
         }`}
         style={getContainerStyle()}
       >
-        {activeSlots.map((slot, index) => {
-          const isSlotFocused = isFocusMode && slot.id === maximizedSlotId;
-          const isSecondaryInFocusMode = isFocusMode && !isSlotFocused;
-          const isAudioActive = activeAudioSlotId === slot.id;
-          const isEditing = editingSlotIndex === index;
-          const hasStream = Boolean(slot.url && slot.type !== 'unsupported');
-
-          return (
-            <div
-              key={slot.id}
-              style={getSlotStyle(slot)}
-              onClick={() => {
-                // Clicking a secondary stream in Focus Mode smoothly converts it into the main hero stream!
-                if (isSecondaryInFocusMode && hasStream && !isEditing) {
-                  onSetMaximizedSlot(slot.id);
-                }
-              }}
-              className={`relative rounded-xl overflow-hidden bg-[#191b20] border transition-all duration-200 flex flex-col group min-h-0 ${
-                isSlotFocused
-                  ? 'border-emerald-500/60 shadow-2xl ring-2 ring-emerald-500/40 z-20'
-                  : isSecondaryInFocusMode
-                  ? 'border-white/10 hover:border-emerald-500/50 hover:shadow-lg hover:shadow-emerald-950/30 cursor-pointer'
-                  : `${getStandardSlotSpanClass(index)} ${
-                      isAudioActive
-                        ? 'border-emerald-500/50 shadow-md shadow-emerald-950/20'
-                        : 'border-white/10 hover:border-white/20'
-                    }`
-              }`}
-            >
-              {/* Secondary stream hover badge in Focus Mode */}
-              {isSecondaryInFocusMode && hasStream && !isEditing && (
-                <div className="absolute top-2 right-2 z-25 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/80 text-[10px] font-mono font-bold text-emerald-400 border border-emerald-500/40 shadow-lg backdrop-blur-xs">
-                    <Pin className="w-3 h-3" />
-                    Hacer principal
-                  </span>
-                </div>
-              )}
-
-              {/* Empty slot state */}
-              {!hasStream && !isEditing && (
-                <div className="w-full h-full min-h-[140px] flex flex-col items-center justify-center p-4 text-center bg-[#15171c]/60 hover:bg-[#191b20] transition group/empty">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 group-hover/empty:text-emerald-400 group-hover/empty:border-emerald-500/40 group-hover/empty:bg-emerald-500/10 transition mb-2.5 shadow-inner">
-                    <Tv className="w-5 h-5 sm:w-6 sm:h-6" />
-                  </div>
-                  <div className="text-[11px] sm:text-xs font-mono font-semibold text-slate-400 uppercase tracking-widest mb-1">
-                    CANAL {index + 1}
-                  </div>
-                  <p className="text-[10px] sm:text-[11px] text-slate-500 mb-3 max-w-[180px]">
-                    Espacio disponible para transmisión
-                  </p>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingSlotIndex(index);
-                    }}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500/90 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-lg shadow-emerald-950/40 hover:scale-[1.02]"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>+ AGREGAR</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Editing slot URL */}
-              {isEditing && (
-                <div
-                  className="w-full h-full flex items-center justify-center p-2 bg-[#121418] overflow-y-auto"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <StreamInput
-                    channelIndex={index}
-                    initialUrl={slot.originalInput || slot.url}
-                    onConfirm={(newUrl, manualOverrideType) => {
-                      onAddStream(index, newUrl, manualOverrideType);
-                      setEditingSlotIndex(null);
-                    }}
-                    onCancel={() => setEditingSlotIndex(null)}
-                  />
-                </div>
-              )}
-
-              {/* Active stream player */}
-              {hasStream && !isEditing && (
-                <>
-                  <div className="w-full h-full relative flex-1 min-h-0">
-                    <StreamPlayer
-                      slot={slot}
-                      isUnmuted={isAudioActive}
-                      onStatusChange={(status, diagnosticCode, error) => {
-                        onUpdateSlot(index, { status, diagnosticCode, errorMessage: error });
-                      }}
-                      onRetry={() => onReloadStream(index)}
-                      onEditUrl={() => setEditingSlotIndex(index)}
-                      onReplaceUrl={(newUrl) => onAddStream(index, newUrl)}
-                    />
-                  </div>
-
-                  <StreamControls
-                    slot={slot}
-                    isMaximized={isSlotFocused}
-                    isAudioActive={isAudioActive}
-                    onToggleAudio={() => onToggleAudio(slot.id)}
-                    onToggleMaximize={() => {
-                      // Toggle focus mode: if already focused, restore balanced grid; if not, make it principal
-                      onSetMaximizedSlot(isSlotFocused ? null : slot.id);
-                    }}
-                    onReload={() => onReloadStream(index)}
-                    onEdit={() => setEditingSlotIndex(index)}
-                    onClose={() => onRemoveStream(index)}
-                    onToggleAspectRatio={() => {
-                      const next =
-                        slot.aspectRatio === 'contain'
-                          ? 'cover'
-                          : slot.aspectRatio === 'cover'
-                          ? '16/9'
-                          : 'contain';
-                      onUpdateSlot(index, { aspectRatio: next });
-                    }}
-                  />
-                </>
-              )}
-            </div>
-          );
-        })}
+        {activeSlots.map((slot, index) => (
+          <StreamSlotTile
+            key={slot.id}
+            slot={slot}
+            index={index}
+            isFocusMode={isFocusMode}
+            maximizedSlotId={maximizedSlotId}
+            activeAudioSlotId={activeAudioSlotId}
+            isEditing={editingSlotIndex === index}
+            onSetEditingSlotIndex={setEditingSlotIndex}
+            onSetMaximizedSlot={onSetMaximizedSlot}
+            onToggleAudio={onToggleAudio}
+            onAddStream={onAddStream}
+            onRemoveStream={onRemoveStream}
+            onReloadStream={onReloadStream}
+            onUpdateSlot={onUpdateSlot}
+            slotStyle={getSlotStyle(slot)}
+            standardSpanClass={getStandardSlotSpanClass(index)}
+          />
+        ))}
       </div>
     </div>
   );
