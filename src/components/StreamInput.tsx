@@ -14,15 +14,19 @@ import {
   AlertTriangle,
   X,
   Play,
+  Code,
+  Layers,
+  ShieldCheck,
 } from 'lucide-react';
 import { detectStreamSource, SAMPLE_STREAMS } from '../services/streamDetector';
+import { isIframeSnippet, parseIframeSnippet } from '../services/iframeParser';
 import { storageService } from '../services/storageService';
 import { HistoryItem, StreamType } from '../types/stream';
 
 interface StreamInputProps {
   channelIndex: number;
   initialUrl?: string;
-  onConfirm: (url: string) => void;
+  onConfirm: (url: string, manualOverrideType?: StreamType) => void;
   onCancel?: () => void;
 }
 
@@ -33,6 +37,7 @@ export const StreamInput: React.FC<StreamInputProps> = ({
   onCancel,
 }) => {
   const [url, setUrl] = useState(initialUrl);
+  const [manualType, setManualType] = useState<'auto' | StreamType>('auto');
   const [activeTab, setActiveTab] = useState<'custom' | 'samples' | 'history'>('custom');
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
@@ -40,21 +45,24 @@ export const StreamInput: React.FC<StreamInputProps> = ({
     setHistory(storageService.getHistory());
   }, []);
 
+  const hasIframeSnippet = isIframeSnippet(url);
+  const parsedIframe = hasIframeSnippet ? parseIframeSnippet(url) : null;
   const detection = url.trim() ? detectStreamSource(url) : null;
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!url.trim()) return;
-    onConfirm(url.trim());
+    const override = manualType === 'auto' ? undefined : manualType;
+    onConfirm(url.trim(), override);
   };
 
-  const handleSelectPredefined = (selectedUrl: string) => {
+  const handleSelectPredefined = (selectedUrl: string, selectedType?: StreamType) => {
     setUrl(selectedUrl);
-    onConfirm(selectedUrl);
+    onConfirm(selectedUrl, selectedType);
   };
 
   return (
-    <div className="w-full max-w-lg p-5 rounded-2xl bg-[#191b20] border border-white/10 shadow-2xl text-left relative z-10 mx-auto">
+    <div className="w-full max-w-xl p-5 rounded-2xl bg-[#191b20] border border-white/10 shadow-2xl text-left relative z-10 mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 mb-4 border-b border-white/5">
         <div className="flex items-center gap-2">
@@ -86,8 +94,8 @@ export const StreamInput: React.FC<StreamInputProps> = ({
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          <Link className="w-3.5 h-3.5" />
-          <span>Introducir URL</span>
+          <Code className="w-3.5 h-3.5" />
+          <span>URL o Código IFrame</span>
         </button>
 
         <button
@@ -117,27 +125,35 @@ export const StreamInput: React.FC<StreamInputProps> = ({
         </button>
       </div>
 
-      {/* Tab 1: Custom URL */}
+      {/* Tab 1: Custom URL or IFrame Code */}
       {activeTab === 'custom' && (
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3.5">
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              Enlace de video o streaming:
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-slate-300">
+                Pega una URL o código completo &lt;iframe&gt;:
+              </label>
+              {hasIframeSnippet && (
+                <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                  <ShieldCheck className="w-3 h-3" />
+                  Código IFrame Detectado
+                </span>
+              )}
+            </div>
             <div className="relative">
-              <input
-                type="text"
+              <textarea
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="YouTube, Twitch, Vimeo, .m3u8 (HLS), .mpd (DASH) o MP4..."
-                className="w-full rounded-xl bg-[#101114] border border-white/10 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500/80 pr-10 font-mono transition"
+                rows={hasIframeSnippet ? 3 : 2}
+                placeholder="Pega un enlace (YouTube, Twitch, .m3u8, .mpd, MP4) o un código <iframe src=...></iframe>"
+                className="w-full rounded-xl bg-[#101114] border border-white/10 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500/80 font-mono transition resize-none"
                 autoFocus
               />
               {url && (
                 <button
                   type="button"
                   onClick={() => setUrl('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                  className="absolute right-2.5 top-2.5 text-slate-500 hover:text-white p-1"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -145,8 +161,26 @@ export const StreamInput: React.FC<StreamInputProps> = ({
             </div>
           </div>
 
+          {/* Parsed Iframe Sanitization Badge */}
+          {hasIframeSnippet && parsedIframe && parsedIframe.isValid && (
+            <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs space-y-1">
+              <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>IFrame Sanitizado y Validado:</span>
+              </div>
+              <p className="text-[11px] text-slate-300 font-mono truncate">
+                SRC: {parsedIframe.src}
+              </p>
+              {parsedIframe.attributes.allow && (
+                <p className="text-[10px] text-slate-400 font-mono truncate">
+                  Permisos: {parsedIframe.attributes.allow}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Real-time detection card */}
-          {detection && (
+          {detection && !hasIframeSnippet && (
             <div className="p-3 rounded-xl bg-[#101114] border border-white/5 space-y-1.5 text-xs">
               <div className="flex items-center justify-between">
                 <span className="text-slate-400 font-mono text-[11px]">Clasificación:</span>
@@ -181,10 +215,27 @@ export const StreamInput: React.FC<StreamInputProps> = ({
             </div>
           )}
 
-          {/* Supported Sources info */}
-          <div className="text-[11px] text-slate-400 leading-relaxed bg-[#101114]/60 p-2.5 rounded-xl border border-white/5">
-            <span className="text-slate-300 font-medium">Fuentes compatibles:</span> YouTube,
-            Twitch, Vimeo, Dailymotion, streams HLS (.m3u8), MPEG-DASH (.mpd), archivos directos MP4/WebM y páginas autorizadas.
+          {/* Manual Player Selection Option */}
+          <div className="flex items-center justify-between p-2 rounded-xl bg-[#101114] border border-white/5 text-xs">
+            <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Adaptador de reproducción:</span>
+            </span>
+            <select
+              value={manualType}
+              onChange={(e) => setManualType(e.target.value as any)}
+              className="bg-[#191b20] border border-white/10 text-white text-[11px] rounded-lg px-2.5 py-1 font-mono focus:outline-none focus:border-emerald-500"
+            >
+              <option value="auto">Automático (Recomendado)</option>
+              <option value="iframe-embed">Embed IFrame (Prioridad)</option>
+              <option value="hls">Streaming HLS (.m3u8)</option>
+              <option value="html5">Video Directo HTML5 (MP4 / WebM)</option>
+              <option value="dash">Streaming MPEG-DASH (.mpd)</option>
+              <option value="youtube">YouTube API</option>
+              <option value="twitch">Twitch Interactive</option>
+              <option value="vimeo">Vimeo SDK</option>
+              <option value="web-page">Página Web Completa</option>
+            </select>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">
@@ -200,10 +251,10 @@ export const StreamInput: React.FC<StreamInputProps> = ({
             <button
               type="submit"
               disabled={!url.trim()}
-              className="px-5 py-2 rounded-xl text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-black disabled:opacity-40 disabled:pointer-events-none transition shadow-md shadow-emerald-950/50 flex items-center gap-1.5"
+              className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-black disabled:opacity-40 disabled:pointer-events-none transition shadow-md shadow-emerald-950/50 flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Cargar Stream</span>
+              <span>Cargar en Canal {channelIndex + 1}</span>
             </button>
           </div>
         </form>
@@ -211,16 +262,16 @@ export const StreamInput: React.FC<StreamInputProps> = ({
 
       {/* Tab 2: Sample Streams */}
       {activeTab === 'samples' && (
-        <div className="space-y-2 max-h-72 overflow-y-auto pr-1 text-xs">
+        <div className="space-y-2 max-h-80 overflow-y-auto pr-1 text-xs">
           <p className="text-[11px] text-slate-400 mb-2">
-            Selecciona una fuente lista para probar la reproducción inmediatamente:
+            Selecciona una fuente verificada para probar la reproducción inmediatamente:
           </p>
           <div className="grid grid-cols-1 gap-1.5">
             {SAMPLE_STREAMS.map((sample, idx) => (
               <button
                 key={idx}
                 type="button"
-                onClick={() => handleSelectPredefined(sample.url)}
+                onClick={() => handleSelectPredefined(sample.url, sample.type)}
                 className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[#101114] hover:bg-emerald-500/10 border border-white/5 hover:border-emerald-500/30 text-left transition group"
               >
                 <div className="flex items-center gap-2.5 min-w-0 pr-2">
@@ -245,7 +296,7 @@ export const StreamInput: React.FC<StreamInputProps> = ({
 
       {/* Tab 3: History */}
       {activeTab === 'history' && (
-        <div className="space-y-2 max-h-72 overflow-y-auto pr-1 text-xs">
+        <div className="space-y-2 max-h-80 overflow-y-auto pr-1 text-xs">
           {history.length === 0 ? (
             <div className="text-center py-8 text-slate-500 text-xs">
               No hay enlaces en el historial reciente.
@@ -269,7 +320,7 @@ export const StreamInput: React.FC<StreamInputProps> = ({
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => handleSelectPredefined(item.url)}
+                  onClick={() => handleSelectPredefined(item.url, item.type)}
                   className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[#101114] hover:bg-white/5 border border-white/5 text-left transition group"
                 >
                   <div className="min-w-0 pr-2">

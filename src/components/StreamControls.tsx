@@ -107,11 +107,22 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
 
-          {/* Maximize / Restore */}
+          {/* Focus / Hero Stage Toggle */}
           <button
-            onClick={onToggleMaximize}
-            title={isMaximized ? 'Restaurar cuadrícula (ESC)' : 'Maximizar stream'}
-            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMaximize();
+            }}
+            title={
+              isMaximized
+                ? 'Restaurar cuadrícula equilibrada (ESC)'
+                : 'Convertir en transmisión principal (Enfoque tipo Meet / Zoom)'
+            }
+            className={`p-1.5 rounded-lg transition ${
+              isMaximized
+                ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/40'
+                : 'text-slate-300 hover:text-white hover:bg-white/10'
+            }`}
           >
             {isMaximized ? (
               <Minimize2 className="w-3.5 h-3.5 text-emerald-400" />
@@ -122,7 +133,10 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
 
           {/* Close Stream */}
           <button
-            onClick={onClose}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
             title="Cerrar y vaciar este recuadro"
             className="p-1.5 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-500/10 transition"
           >
@@ -137,7 +151,10 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
           {/* Aspect ratio toggle (contain / cover) */}
           {onToggleAspectRatio && (
             <button
-              onClick={onToggleAspectRatio}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleAspectRatio();
+              }}
               title={`Ajuste de pantalla actual: ${slot.aspectRatio}`}
               className="px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[10px] font-mono text-slate-300 hover:text-white border border-white/10 hover:bg-white/10 transition flex items-center gap-1"
             >
@@ -150,13 +167,17 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
         {/* Global Priority Audio Button (Corner Lower-Right) */}
         <div className="pointer-events-auto">
           <button
-            onClick={onToggleAudio}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleAudio();
+            }}
             title={
               isAudioActive
-                ? 'Sonido activo (Click para silenciar)'
-                : 'Activar sonido de este stream (silenciará automáticamente todos los demás)'
+                ? 'Sonido activo en esta transmisión. Haz clic para silenciar.'
+                : 'Activar sonido (silenciará automáticamente las demás transmisiones)'
             }
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium text-xs shadow-lg transition-all border ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium text-xs shadow-lg transition-all border cursor-pointer select-none active:scale-95 ${
               isAudioActive
                 ? 'bg-emerald-500 text-black border-emerald-400 font-bold shadow-emerald-950/60 ring-2 ring-emerald-400/50 scale-105'
                 : 'bg-black/70 hover:bg-black/90 text-slate-300 hover:text-white border-white/15'

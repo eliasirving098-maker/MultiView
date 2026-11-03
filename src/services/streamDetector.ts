@@ -4,13 +4,14 @@
  */
 
 import { StreamDetectionResult, StreamType } from '../types/stream';
+import { isIframeSnippet, parseIframeSnippet } from './iframeParser';
 
 /**
  * Detects and classifies the media source according to web architecture standards:
- * - web-page: full HTML website / portal
- * - iframe-embed: standalone embed document for iframe display
+ * - iframe-embed: standalone embed document for iframe display or user-pasted <iframe> tag
  * - external-player: official platform embeds (YouTube, Twitch, Vimeo, Dailymotion)
  * - direct-media: direct video (.mp4/.webm) or streaming manifests (.m3u8 HLS / .mpd DASH)
+ * - web-page: full HTML website / portal
  * - blob-resource: ephemeral local blob: URLs
  */
 export function detectStreamSource(
@@ -28,7 +29,46 @@ export function detectStreamSource(
       title: 'URL vacía',
       isEmbeddable: false,
       diagnosticCode: 'incompatible-resource',
-      reason: 'Por favor introduce una dirección URL válida.',
+      reason: 'Por favor introduce una dirección URL válida o un código <iframe>.',
+    };
+  }
+
+  // 0. HTML Iframe Code Snippet Detection (<iframe ...></iframe>)
+  if (isIframeSnippet(url)) {
+    const parsedIframe = parseIframeSnippet(url);
+    if (!parsedIframe.isValid) {
+      return {
+        type: 'unsupported',
+        classification: 'unsupported',
+        originalUrl: url,
+        embedUrl: '',
+        title: 'Código IFrame no válido',
+        isEmbeddable: false,
+        diagnosticCode: 'incompatible-resource',
+        reason: parsedIframe.error || 'El código <iframe> no pudo ser procesado.',
+      };
+    }
+
+    // Extract hostname and title
+    let embedTitle = parsedIframe.attributes.title;
+    try {
+      const u = new URL(parsedIframe.src);
+      if (!embedTitle) {
+        embedTitle = formatEmbedTitle(u.pathname, u.hostname);
+      }
+    } catch {
+      embedTitle = 'Reproductor IFrame Integrado';
+    }
+
+    return {
+      type: 'iframe-embed',
+      classification: 'iframe-embed',
+      originalUrl: url,
+      embedUrl: parsedIframe.src,
+      title: embedTitle,
+      customIframeAttributes: parsedIframe.attributes,
+      isEmbeddable: true,
+      reason: 'Código HTML <iframe> reconocido y sanitizado con éxito.',
     };
   }
 
@@ -223,10 +263,13 @@ export function detectStreamSource(
     };
   }
 
-  // 9. Embed Documents specifically intended for iframe inclusion (e.g. /embed/, embedcenter, streamec embed endpoints)
+  // 9. Embed Documents specifically intended for iframe inclusion (e.g. /embed/, /event/, aurasportsplayer, streamec embed endpoints)
   const isEmbedDocument =
     pathname.includes('/embed/') ||
     pathname.startsWith('/embed') ||
+    pathname.includes('/event/') ||
+    hostname.includes('aurasports') ||
+    hostname.includes('aurasportsplayer') ||
     hostname.includes('embedcenter') ||
     hostname.includes('streamscenter') ||
     hostname.includes('streamec') ||
@@ -280,6 +323,11 @@ function formatEmbedTitle(pathname: string, hostname: string): string {
     const cleanPath = pathname.replace(/^\/+|\/+$/g, '');
     const segments = cleanPath.split('/');
     const lastSegment = segments[segments.length - 1] || '';
+
+    if (hostname.includes('aurasports')) {
+      const cleanEvent = lastSegment.replace(/^event-|^espn-/i, 'ESPN Event ');
+      return `AuraSports ${cleanEvent} (${hostname.replace('www.', '')})`;
+    }
 
     const chMatch = lastSegment.match(/ch(?:annel)?[-_]?([0-9]+)/i);
     if (chMatch) {
@@ -344,6 +392,13 @@ function getFileNameFromUrl(pathname: string, fallback: string): string {
  * Verified test streams and presets across all supported formats
  */
 export const SAMPLE_STREAMS = [
+  {
+    name: 'AuraSports ESPN Live (Caso 401873036)',
+    category: 'Embed',
+    url: 'https://play.aurasportsplayer.cfd/event/espn-401873036',
+    type: 'iframe-embed' as StreamType,
+    badge: 'IFrame Embed',
+  },
   {
     name: 'Big Buck Bunny (MP4 Direct 1080p)',
     category: 'HTML5',

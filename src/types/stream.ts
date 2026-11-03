@@ -35,6 +35,14 @@ export type DiagnosticCode =
   | 'timeout'
   | 'unobservable-cross-origin';
 
+export interface CustomIframeAttributes {
+  allow?: string;
+  allowFullScreen?: boolean;
+  referrerPolicy?: ReferrerPolicy;
+  title?: string;
+  originalSnippet?: string;
+}
+
 export interface StreamSlot {
   id: string;
   index: number; // 0 to 5
@@ -44,6 +52,8 @@ export interface StreamSlot {
   type: StreamType;
   classification: SourceClassification;
   embedUrl?: string;
+  customIframeAttributes?: CustomIframeAttributes;
+  manualOverrideType?: StreamType;
   videoId?: string;
   channel?: string;
   isMuted: boolean;
@@ -62,6 +72,7 @@ export interface StreamDetectionResult {
   originalUrl: string;
   embedUrl: string;
   title: string;
+  customIframeAttributes?: CustomIframeAttributes;
   videoId?: string;
   channel?: string;
   isEmbeddable: boolean;

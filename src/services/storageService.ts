@@ -16,6 +16,39 @@ const STORAGE_KEYS = {
 // Initial default presets to provide an instant, rich experience
 const DEFAULT_PRESETS: SavedPreset[] = [
   {
+    id: 'preset-aurasports',
+    name: 'AuraSports ESPN Live & Multiview',
+    category: 'Fútbol',
+    streamCount: 4,
+    streams: [
+      {
+        index: 0,
+        url: 'https://play.aurasportsplayer.cfd/event/espn-401873036',
+        title: 'AuraSports ESPN Live (Caso 401873036)',
+        type: 'iframe-embed',
+      },
+      {
+        index: 1,
+        url: 'https://streamec.st/embed/ch32.php',
+        title: 'StreamEC Canal 32 — NFL Ravens vs. Bills',
+        type: 'iframe-embed',
+      },
+      {
+        index: 2,
+        url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+        title: 'Cámara Táctica (HLS Live)',
+        type: 'hls',
+      },
+      {
+        index: 3,
+        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+        title: 'Transmisión Secundaria Directa HD',
+        type: 'html5',
+      },
+    ],
+    createdAt: Date.now() - 900000,
+  },
+  {
     id: 'preset-nfl',
     name: 'NFL: Ravens vs Bills',
     category: 'Fútbol',

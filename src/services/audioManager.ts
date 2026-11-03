@@ -5,10 +5,62 @@
 
 type AudioListener = (activeSlotId: string | null) => void;
 
+/**
+ * Broadcast standard audio postMessage commands to any iframe player
+ * (YouTube, Vimeo, Twitch, Player.js, JWPlayer, Video.js, HTML5 wrappers, etc.)
+ */
+export function sendIframeAudioCommands(
+  iframe: HTMLIFrameElement | null,
+  shouldBeMuted: boolean
+): void {
+  if (!iframe?.contentWindow) return;
+
+  const target = iframe.contentWindow;
+  const isMute = shouldBeMuted;
+
+  const payloads: any[] = [
+    // Standard player.js protocol
+    { context: 'player.js', version: '0.0.11', event: 'command', command: isMute ? 'mute' : 'unmute' },
+    { context: 'player.js', version: '0.0.11', event: 'command', command: 'setVolume', value: isMute ? 0 : 100 },
+
+    // YouTube JSON-RPC protocol
+    { event: 'command', func: isMute ? 'mute' : 'unMute', args: [] },
+    { event: 'command', func: 'setVolume', args: [isMute ? 0 : 100] },
+
+    // Vimeo protocol
+    { method: isMute ? 'mute' : 'unmute' },
+    { method: 'setVolume', value: isMute ? 0 : 1 },
+
+    // Twitch protocol
+    { event: isMute ? 'mute' : 'unMute' },
+    { type: 'player', data: { muted: isMute } },
+
+    // Generic HTML5 / embed player protocols
+    { action: isMute ? 'mute' : 'unmute' },
+    { command: isMute ? 'mute' : 'unmute' },
+    { type: isMute ? 'mute' : 'unmute' },
+    { type: 'volume', volume: isMute ? 0 : 1 },
+    { type: 'setMute', muted: isMute },
+    { message: isMute ? 'mute' : 'unmute' },
+  ];
+
+  payloads.forEach((payload) => {
+    try {
+      // Send as JavaScript object
+      target.postMessage(payload, '*');
+      // Also send as serialized JSON string for receivers expecting strings
+      target.postMessage(JSON.stringify(payload), '*');
+    } catch {
+      // Cross-origin safety guard
+    }
+  });
+}
+
 class AudioManager {
   private activeSlotId: string | null = null;
   private listeners: Set<AudioListener> = new Set();
   private iframeControllers: Map<string, (shouldBeMuted: boolean) => void> = new Map();
+  private mediaElements: Map<string, HTMLMediaElement> = new Map();
 
   constructor() {
     // By default all streams begin muted
@@ -68,7 +120,19 @@ class AudioManager {
   }
 
   /**
-   * Register an iframe audio handler (e.g. YouTube, Vimeo, Twitch)
+   * Register a direct HTMLMediaElement (video/audio tag) for synchronous muting
+   */
+  public registerMediaElement(slotId: string, element: HTMLMediaElement): () => void {
+    this.mediaElements.set(slotId, element);
+    element.muted = this.activeSlotId !== slotId;
+
+    return () => {
+      this.mediaElements.delete(slotId);
+    };
+  }
+
+  /**
+   * Register an iframe audio handler (e.g. YouTube, Vimeo, Twitch, EmbedPlayer)
    */
   public registerIframeController(slotId: string, controller: (shouldBeMuted: boolean) => void): () => void {
     this.iframeControllers.set(slotId, controller);
@@ -77,10 +141,6 @@ class AudioManager {
 
     return () => {
       this.iframeControllers.delete(slotId);
-      if (this.activeSlotId === slotId) {
-        this.activeSlotId = null;
-        this.notifyAll();
-      }
     };
   }
 
@@ -98,16 +158,20 @@ class AudioManager {
   }
 
   private notifyAll(): void {
-    // Notify all React listeners
-    this.listeners.forEach((listener) => {
+    // 1. Direct synchronous muting of registered HTMLMediaElements
+    this.mediaElements.forEach((element, id) => {
       try {
-        listener(this.activeSlotId);
+        const shouldBeMuted = this.activeSlotId !== id;
+        element.muted = shouldBeMuted;
+        if (!shouldBeMuted) {
+          element.play().catch(() => {});
+        }
       } catch (err) {
-        console.error('Error in audio listener', err);
+        console.error('Error controlling media element for slot', id, err);
       }
     });
 
-    // Notify all registered iframe controllers
+    // 2. Notify all registered iframe controllers
     this.iframeControllers.forEach((controller, slotId) => {
       try {
         const shouldBeMuted = this.activeSlotId !== slotId;
@@ -117,7 +181,16 @@ class AudioManager {
       }
     });
 
-    // Also dispatch browser custom event for maximum integration
+    // 3. Notify all React listeners
+    this.listeners.forEach((listener) => {
+      try {
+        listener(this.activeSlotId);
+      } catch (err) {
+        console.error('Error in audio listener', err);
+      }
+    });
+
+    // 4. Also dispatch browser custom event
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('multiview:audio_changed', {

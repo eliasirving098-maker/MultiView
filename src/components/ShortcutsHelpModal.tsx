@@ -19,7 +19,7 @@ export const ShortcutsHelpModal: React.FC<ShortcutsHelpModalProps> = ({
 
   const shortcuts = [
     { key: 'M', action: 'Silenciar / Activar sonido del stream seleccionado (respetando gestor único de audio)' },
-    { key: 'ESC', action: 'Salir de modo maximizado individual o cerrar ventanas modales' },
+    { key: 'ESC', action: 'Salir del modo de enfoque (Meet/Zoom) o cerrar ventanas modales' },
     { key: 'F', action: 'Activar / Desactivar pantalla completa de la aplicación (Fullscreen API)' },
     { key: 'R', action: 'Recargar el stream activo o seleccionado' },
   ];

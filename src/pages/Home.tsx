@@ -159,7 +159,7 @@ export const Home: React.FC<HomeProps> = ({
               <span>DISTRIBUCIÓN ADAPTABLE</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Mantiene la relación de aspecto sin deformar los videos. Maximiza cualquier recuadro sin detener los demás streams.
+              Enfoque tipo Meet/Zoom: convierte cualquier transmisión en principal mientras las demás continúan reproduciéndose en vivo.
             </p>
           </div>
 

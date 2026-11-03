@@ -27,7 +27,7 @@ export const PROVIDER_CONFIGS: Record<StreamType, ProviderAdapterConfig> = {
     allow: 'autoplay; fullscreen',
     referrerPolicy: 'no-referrer-when-downgrade',
     allowFullScreen: true,
-    hasControlApi: false,
+    hasControlApi: true,
     isObservable: false,
   },
   vimeo: {
