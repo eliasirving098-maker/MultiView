@@ -3,6 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export type SourceClassification =
+  | 'external-player' // Official platforms with embed APIs (YouTube, Twitch, Vimeo, Dailymotion)
+  | 'iframe-embed'    // Standalone embed documents meant for iframe insertion
+  | 'direct-media'    // Direct media files (.mp4, .webm) and streaming protocols (.m3u8 HLS, .mpd DASH)
+  | 'web-page'        // Full websites/portals that contain nested players, scripts, and navigation
+  | 'blob-resource'   // Ephemeral local memory URLs (blob:...) that cannot be transferred
+  | 'unsupported';
+
 export type StreamType =
   | 'youtube'
   | 'twitch'
@@ -11,9 +19,21 @@ export type StreamType =
   | 'hls'
   | 'dash'
   | 'html5'
-  | 'iframe'
-  | 'sports-portal'
+  | 'iframe-embed'
+  | 'web-page'
+  | 'blob-resource'
   | 'unsupported';
+
+export type DiagnosticCode =
+  | 'none'
+  | 'iframe-error'
+  | 'embedding-forbidden'
+  | 'initialization-error'
+  | 'playback-error'
+  | 'incompatible-resource'
+  | 'network-error'
+  | 'timeout'
+  | 'unobservable-cross-origin';
 
 export interface StreamSlot {
   id: string;
@@ -22,29 +42,44 @@ export interface StreamSlot {
   originalInput: string;
   title: string;
   type: StreamType;
+  classification: SourceClassification;
   embedUrl?: string;
   videoId?: string;
   channel?: string;
   isMuted: boolean;
   isPlaying: boolean;
   volume: number; // 0 to 1
-  status: 'idle' | 'loading' | 'playing' | 'paused' | 'error';
+  status: 'idle' | 'loading' | 'playing' | 'paused' | 'external-loaded' | 'error';
+  diagnosticCode: DiagnosticCode;
   errorMessage?: string;
   aspectRatio: 'contain' | 'cover' | '16/9';
   reloadKey: number;
-  resolvedHls?: string;
-  resolvedEmbed?: string;
 }
 
 export interface StreamDetectionResult {
   type: StreamType;
+  classification: SourceClassification;
   originalUrl: string;
   embedUrl: string;
   title: string;
   videoId?: string;
   channel?: string;
   isEmbeddable: boolean;
+  diagnosticCode?: DiagnosticCode;
   reason?: string;
+  guidance?: string;
+}
+
+export interface ProviderAdapterConfig {
+  providerId: string;
+  providerName: string;
+  classification: SourceClassification;
+  allow: string;
+  referrerPolicy: ReferrerPolicy;
+  allowFullScreen: boolean;
+  hasControlApi: boolean;
+  isObservable: boolean;
+  sandbox?: string;
 }
 
 export interface PresetStreamConfig {
@@ -68,6 +103,7 @@ export interface HistoryItem {
   url: string;
   title: string;
   type: StreamType;
+  classification: SourceClassification;
   timestamp: number;
 }
 

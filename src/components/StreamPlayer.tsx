@@ -3,19 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import Hls from 'hls.js';
 import * as dashjs from 'dashjs';
-import { StreamSlot, StreamType } from '../types/stream';
+import { DiagnosticCode, StreamSlot } from '../types/stream';
+import { getProviderConfig } from '../services/providerAdapters';
 import { globalAudioManager } from '../services/audioManager';
-import { AlertTriangle, ExternalLink, RefreshCw, VolumeX, ShieldAlert, ArrowLeft } from 'lucide-react';
-import { SportsStreamHelper } from './SportsStreamHelper';
+import { DiagnosticBanner } from './DiagnosticBanner';
 
 interface StreamPlayerProps {
   slot: StreamSlot;
   isUnmuted: boolean;
-  onStatusChange?: (status: StreamSlot['status'], errorMessage?: string) => void;
+  onStatusChange?: (
+    status: StreamSlot['status'],
+    diagnosticCode?: DiagnosticCode,
+    errorMessage?: string
+  ) => void;
   onRetry?: () => void;
+  onEditUrl?: () => void;
   onReplaceUrl?: (newUrl: string) => void;
 }
 
@@ -24,50 +29,28 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
   isUnmuted,
   onStatusChange,
   onRetry,
+  onEditUrl,
   onReplaceUrl,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  const isEmbedPlayer =
-    slot.url.includes('/embed/') ||
-    slot.url.includes('streamec') ||
-    slot.url.includes('embedcenter') ||
-    slot.url.includes('streamscenter');
-
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [isIframeBlocked, setIsIframeBlocked] = useState(false);
-  const [isSportsIframeActive, setIsSportsIframeActive] = useState(() => isEmbedPlayer);
-
-  // Clean error state on slot change or reloadKey
-  useEffect(() => {
-    setLoadError(null);
-    setIsIframeBlocked(false);
-    setIsSportsIframeActive(isEmbedPlayer);
-  }, [slot.url, slot.reloadKey, isEmbedPlayer]);
-
-  // Audio synchronization for HTML5 / HLS / DASH video element
+  // 1. Audio synchronization for HTML5 / HLS / DASH video elements
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = !isUnmuted;
       if (isUnmuted) {
         videoRef.current.volume = slot.volume || 1;
-        // Attempt playback with audio if browser suspended it
         videoRef.current.play().catch(() => {
-          // Browser autoplay with sound restriction handled gracefully
+          // Autoplay policy handled gracefully
         });
       }
     }
   }, [isUnmuted, slot.volume]);
 
-  // Register iframe audio controller with global AudioManager
+  // 2. Audio control for official external players supporting postMessage API
   useEffect(() => {
-    if (
-      slot.type === 'youtube' ||
-      slot.type === 'vimeo' ||
-      slot.type === 'twitch' ||
-      slot.type === 'dailymotion'
-    ) {
+    if (slot.type === 'youtube' || slot.type === 'vimeo') {
       const unregister = globalAudioManager.registerIframeController(slot.id, (shouldBeMuted) => {
         const iframe = iframeRef.current;
         if (!iframe || !iframe.contentWindow) return;
@@ -93,7 +76,7 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
             );
           }
         } catch {
-          // cross-origin postMessage safety
+          // Cross-origin postMessage safety
         }
       });
 
@@ -101,13 +84,38 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
     }
   }, [slot.id, slot.type]);
 
-  // Engine instantiation for HLS
+  // 3. Watchdog Timer (8 seconds): Never leave a stream in infinite loading
+  useEffect(() => {
+    if (slot.status !== 'loading' || slot.type === 'blob-resource') return;
+
+    const timer = setTimeout(() => {
+      if (slot.status === 'loading') {
+        if (slot.classification === 'web-page') {
+          onStatusChange?.(
+            'error',
+            'embedding-forbidden',
+            'El sitio web no respondió a la inserción en marco (posible bloqueo por X-Frame-Options o CSP).'
+          );
+        } else {
+          onStatusChange?.(
+            'error',
+            'timeout',
+            'Tiempo de espera agotado (8 segundos). El servidor tardó en responder.'
+          );
+        }
+      }
+    }, 8000);
+
+    return () => clearTimeout(timer);
+  }, [slot.status, slot.reloadKey, slot.type, slot.classification, onStatusChange]);
+
+  // 4. HLS Engine Lifecycle
   useEffect(() => {
     if (slot.type !== 'hls' || !slot.url || !videoRef.current) return;
 
     const video = videoRef.current;
     let hlsInstance: Hls | null = null;
-    onStatusChange?.('loading');
+    onStatusChange?.('loading', 'none');
 
     if (Hls.isSupported()) {
       hlsInstance = new Hls({
@@ -123,13 +131,14 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
         video.muted = !isUnmuted;
         video
           .play()
-          .then(() => onStatusChange?.('playing'))
+          .then(() => onStatusChange?.('playing', 'none'))
           .catch(() => {
-            // If autoplay with sound failed, fallback to muted autoplay
+            // Autoplay with sound restricted, fallback to muted autoplay
             video.muted = true;
-            video.play().then(() => onStatusChange?.('playing')).catch(() => {
-              onStatusChange?.('paused');
-            });
+            video
+              .play()
+              .then(() => onStatusChange?.('playing', 'none'))
+              .catch(() => onStatusChange?.('paused', 'none'));
           });
       });
 
@@ -143,8 +152,11 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
               hlsInstance?.recoverMediaError();
               break;
             default:
-              setLoadError(`Error HLS (${data.details}). Verifique que la fuente permita CORS.`);
-              onStatusChange?.('error', data.details);
+              onStatusChange?.(
+                'error',
+                'playback-error',
+                `Error fatal HLS (${data.details}). Verifique CORS.`
+              );
               hlsInstance?.destroy();
               break;
           }
@@ -155,15 +167,16 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
       video.src = slot.url;
       video.addEventListener('loadedmetadata', () => {
         video.muted = !isUnmuted;
-        video.play().then(() => onStatusChange?.('playing')).catch(() => onStatusChange?.('paused'));
+        video
+          .play()
+          .then(() => onStatusChange?.('playing', 'none'))
+          .catch(() => onStatusChange?.('paused', 'none'));
       });
       video.addEventListener('error', () => {
-        setLoadError('Error cargando stream HLS nativo.');
-        onStatusChange?.('error', 'Native HLS error');
+        onStatusChange?.('error', 'playback-error', 'Error en el stream HLS nativo.');
       });
     } else {
-      setLoadError('El navegador no admite reproducción HLS.');
-      onStatusChange?.('error', 'HLS unsupported');
+      onStatusChange?.('error', 'incompatible-resource', 'El navegador no admite reproducción HLS.');
     }
 
     return () => {
@@ -175,12 +188,12 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
     };
   }, [slot.url, slot.type, slot.reloadKey]);
 
-  // Engine instantiation for MPEG-DASH
+  // 5. MPEG-DASH Engine Lifecycle
   useEffect(() => {
     if (slot.type !== 'dash' || !slot.url || !videoRef.current) return;
 
     const video = videoRef.current;
-    onStatusChange?.('loading');
+    onStatusChange?.('loading', 'none');
     let dashPlayer: dashjs.MediaPlayerClass | null = null;
 
     try {
@@ -189,17 +202,23 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
       video.muted = !isUnmuted;
 
       dashPlayer.on(dashjs.MediaPlayer.events.CAN_PLAY, () => {
-        onStatusChange?.('playing');
+        onStatusChange?.('playing', 'none');
       });
 
       dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e: any) => {
         console.error('DASH error', e);
-        setLoadError('Error cargando transmisión MPEG-DASH. Puede requerir CORS.');
-        onStatusChange?.('error', 'DASH error');
+        onStatusChange?.(
+          'error',
+          'playback-error',
+          'Error cargando transmisión MPEG-DASH. Puede requerir CORS.'
+        );
       });
     } catch (err: any) {
-      setLoadError(`Fallo al inicializar reproductor DASH: ${err?.message}`);
-      onStatusChange?.('error', err?.message);
+      onStatusChange?.(
+        'error',
+        'initialization-error',
+        `Fallo al inicializar reproductor DASH: ${err?.message}`
+      );
     }
 
     return () => {
@@ -211,29 +230,34 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
     };
   }, [slot.url, slot.type, slot.reloadKey]);
 
-  // Direct HTML5 Video (.mp4, .webm)
+  // 6. Direct HTML5 Video Lifecycle (.mp4, .webm)
   useEffect(() => {
     if (slot.type !== 'html5' || !slot.url || !videoRef.current) return;
 
     const video = videoRef.current;
-    onStatusChange?.('loading');
+    onStatusChange?.('loading', 'none');
     video.src = slot.url;
     video.muted = !isUnmuted;
 
     const handleCanPlay = () => {
       video
         .play()
-        .then(() => onStatusChange?.('playing'))
+        .then(() => onStatusChange?.('playing', 'none'))
         .catch(() => {
-          // Muted fallback
           video.muted = true;
-          video.play().then(() => onStatusChange?.('playing')).catch(() => onStatusChange?.('paused'));
+          video
+            .play()
+            .then(() => onStatusChange?.('playing', 'none'))
+            .catch(() => onStatusChange?.('paused', 'none'));
         });
     };
 
     const handleError = () => {
-      setLoadError('No se pudo reproducir el archivo multimedia. Verifique la URL y CORS.');
-      onStatusChange?.('error', 'HTML5 Media Error');
+      onStatusChange?.(
+        'error',
+        'playback-error',
+        'No se pudo reproducir el archivo multimedia. Verifique la URL y CORS.'
+      );
     };
 
     video.addEventListener('canplay', handleCanPlay);
@@ -247,42 +271,29 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
     };
   }, [slot.url, slot.type, slot.reloadKey]);
 
-  // If there's an error, show clear error card
-  if (loadError) {
+  // 7. Blob Resource: Incompatible by design across origins / contexts
+  if (slot.type === 'blob-resource') {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center p-6 bg-[#14151a] text-center select-none">
-        <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mb-3">
-          <AlertTriangle className="w-6 h-6" />
-        </div>
-        <h4 className="text-sm font-semibold text-white mb-1">Error de Transmisión</h4>
-        <p className="text-xs text-slate-400 max-w-sm mb-4 leading-relaxed font-mono">
-          {loadError}
-        </p>
-        <div className="flex items-center gap-2">
-          {onRetry && (
-            <button
-              onClick={onRetry}
-              className="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-medium text-white transition flex items-center gap-1.5"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Reintentar</span>
-            </button>
-          )}
-          <a
-            href={slot.originalInput || slot.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-slate-300 hover:text-white transition flex items-center gap-1.5 border border-white/5"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            <span>Abrir en navegador</span>
-          </a>
-        </div>
-      </div>
+      <DiagnosticBanner
+        slot={slot}
+        onRetry={() => onRetry?.()}
+        onEditUrl={() => onEditUrl?.()}
+      />
     );
   }
 
-  // Render HTML5 / HLS / DASH container
+  // 8. If slot has error or non-ignorable diagnostic, display DiagnosticBanner
+  if (slot.status === 'error') {
+    return (
+      <DiagnosticBanner
+        slot={slot}
+        onRetry={() => onRetry?.()}
+        onEditUrl={() => onEditUrl?.()}
+      />
+    );
+  }
+
+  // 9. Render Direct Media (HTML5 / HLS / DASH)
   if (slot.type === 'html5' || slot.type === 'hls' || slot.type === 'dash') {
     return (
       <div className="w-full h-full relative flex items-center justify-center bg-black overflow-hidden group">
@@ -299,186 +310,115 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
               ? 'object-cover'
               : 'aspect-video object-contain'
           }`}
-          onPlay={() => onStatusChange?.('playing')}
-          onPause={() => onStatusChange?.('paused')}
-          onWaiting={() => onStatusChange?.('loading')}
-          onPlaying={() => onStatusChange?.('playing')}
+          onPlay={() => onStatusChange?.('playing', 'none')}
+          onPause={() => onStatusChange?.('paused', 'none')}
+          onWaiting={() => onStatusChange?.('loading', 'none')}
+          onPlaying={() => onStatusChange?.('playing', 'none')}
         />
       </div>
     );
   }
 
-  // Render YouTube Iframe
-  if (slot.type === 'youtube' && slot.embedUrl) {
+  // 10. Render Official Platform Embeds (YouTube, Twitch, Vimeo, Dailymotion)
+  if (
+    (slot.type === 'youtube' ||
+      slot.type === 'twitch' ||
+      slot.type === 'vimeo' ||
+      slot.type === 'dailymotion') &&
+    slot.embedUrl
+  ) {
+    const config = getProviderConfig(slot.type);
+
     return (
       <div className="w-full h-full relative bg-black overflow-hidden">
         <iframe
           ref={iframeRef}
-          key={`yt-${slot.reloadKey}`}
+          key={`${slot.type}-${slot.reloadKey}`}
           src={slot.embedUrl}
           title={slot.title}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowFullScreen
+          allow={config.allow}
+          allowFullScreen={config.allowFullScreen}
+          referrerPolicy={config.referrerPolicy}
           className="w-full h-full border-0 pointer-events-auto"
+          onLoad={() => {
+            onStatusChange?.('playing', 'none');
+          }}
+          onError={() => {
+            onStatusChange?.('error', 'iframe-error', 'Error al cargar reproductor oficial.');
+          }}
         />
       </div>
     );
   }
 
-  // Render Twitch Iframe
-  if (slot.type === 'twitch' && slot.embedUrl) {
-    return (
-      <div className="w-full h-full relative bg-black overflow-hidden">
-        <iframe
-          ref={iframeRef}
-          key={`twitch-${slot.reloadKey}`}
-          src={slot.embedUrl}
-          title={slot.title}
-          allow="autoplay; fullscreen"
-          allowFullScreen
-          className="w-full h-full border-0 pointer-events-auto"
-        />
-      </div>
-    );
-  }
-
-  // Render Vimeo Iframe
-  if (slot.type === 'vimeo' && slot.embedUrl) {
-    return (
-      <div className="w-full h-full relative bg-black overflow-hidden">
-        <iframe
-          ref={iframeRef}
-          key={`vimeo-${slot.reloadKey}`}
-          src={slot.embedUrl}
-          title={slot.title}
-          allow="autoplay; fullscreen; picture-in-picture"
-          allowFullScreen
-          className="w-full h-full border-0 pointer-events-auto"
-        />
-      </div>
-    );
-  }
-
-  // Render Dailymotion Iframe
-  if (slot.type === 'dailymotion' && slot.embedUrl) {
-    return (
-      <div className="w-full h-full relative bg-black overflow-hidden">
-        <iframe
-          ref={iframeRef}
-          key={`dm-${slot.reloadKey}`}
-          src={slot.embedUrl}
-          title={slot.title}
-          allow="autoplay; fullscreen; webkitallowfullscreen; mozallowfullscreen"
-          allowFullScreen
-          className="w-full h-full border-0 pointer-events-auto"
-        />
-      </div>
-    );
-  }
-
-  // Render Sports Portal with dedicated SportsStreamHelper
-  if (slot.type === 'sports-portal') {
-    if (!isSportsIframeActive) {
-      return (
-        <SportsStreamHelper
-          slot={slot}
-          onReplaceUrl={(newUrl) => onReplaceUrl?.(newUrl)}
-          isIframeMode={isSportsIframeActive}
-          onToggleIframeMode={() => setIsSportsIframeActive(true)}
-        />
-      );
-    }
+  // 11. Render Authorized Embed Documents (iframe-embed, e.g. streamec.st/embed/ch32.php)
+  if (slot.type === 'iframe-embed' && (slot.embedUrl || slot.url)) {
+    const config = getProviderConfig('iframe-embed');
+    const targetSrc = slot.embedUrl || slot.url;
 
     return (
-      <div className="w-full h-full relative bg-black overflow-hidden group/sports">
-        <div className="absolute top-2 left-2 z-20">
-          <button
-            onClick={() => setIsSportsIframeActive(false)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/85 hover:bg-black text-white text-[11px] font-medium border border-white/10 shadow-lg backdrop-blur-md transition"
-          >
-            <ArrowLeft className="w-3 h-3 text-emerald-400" />
-            <span>Asistente Deportivo</span>
-          </button>
-        </div>
+      <div className="w-full h-full relative bg-black overflow-hidden group/embed">
         <iframe
           ref={iframeRef}
-          key={`sports-${slot.reloadKey}`}
-          src={slot.embedUrl || slot.url}
+          key={`embed-${slot.reloadKey}`}
+          src={targetSrc}
           title={slot.title}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          allowFullScreen
-          referrerPolicy="no-referrer-when-downgrade"
+          allow={config.allow}
+          allowFullScreen={config.allowFullScreen}
+          referrerPolicy={config.referrerPolicy}
           className="w-full h-full border-0 pointer-events-auto bg-black"
           onLoad={() => {
-            onStatusChange?.('playing');
+            // Because cross-origin iframes are restricted by the browser's Same-Origin Policy,
+            // we explicitly report external-loaded with unobservable-cross-origin.
+            onStatusChange?.(
+              'external-loaded',
+              'unobservable-cross-origin',
+              'Documento embed cargado en su marco original.'
+            );
           }}
           onError={() => {
-            setIsIframeBlocked(true);
-            onStatusChange?.('error', 'Error al cargar iframe');
+            onStatusChange?.(
+              'error',
+              'iframe-error',
+              'Error al cargar documento embed en el marco.'
+            );
           }}
         />
-        {isIframeBlocked && (
-          <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-4 text-center z-10">
-            <ShieldAlert className="w-8 h-8 text-amber-400 mb-2" />
-            <p className="text-xs text-slate-200 font-semibold mb-1">
-              Inserción bloqueada por Cloudflare o X-Frame-Options
-            </p>
-            <p className="text-[11px] text-slate-400 mb-3 max-w-xs">
-              El portal no permite mostrar su página completa en un marco debido a sus directivas de seguridad.
-            </p>
-            <button
-              onClick={() => setIsSportsIframeActive(false)}
-              className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-md"
-            >
-              Abrir Asistente Deportivo / Extractor
-            </button>
-          </div>
-        )}
       </div>
     );
   }
 
-  // Render Generic Web Iframe / Page
-  if (slot.type === 'iframe' && slot.embedUrl) {
+  // 12. Render Web Page / Portal (web-page, e.g. tvsportslive.fr/baltimore-ravens-vs-buffalo-bills/)
+  if (slot.type === 'web-page' && (slot.embedUrl || slot.url)) {
+    const config = getProviderConfig('web-page');
+    const targetSrc = slot.embedUrl || slot.url;
+
     return (
-      <div className="w-full h-full relative bg-black overflow-hidden">
+      <div className="w-full h-full relative bg-black overflow-hidden group/webpage">
         <iframe
           ref={iframeRef}
-          key={`iframe-${slot.reloadKey}`}
-          src={slot.embedUrl}
+          key={`webpage-${slot.reloadKey}`}
+          src={targetSrc}
           title={slot.title}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          allowFullScreen
-          referrerPolicy="no-referrer-when-downgrade"
+          allow={config.allow}
+          allowFullScreen={config.allowFullScreen}
+          referrerPolicy={config.referrerPolicy}
           className="w-full h-full border-0 pointer-events-auto bg-white/5"
           onLoad={() => {
-            onStatusChange?.('playing');
+            onStatusChange?.(
+              'external-loaded',
+              'unobservable-cross-origin',
+              'Página web cargada. El estado del reproductor interno no es observable por Same-Origin Policy.'
+            );
           }}
           onError={() => {
-            setIsIframeBlocked(true);
-            onStatusChange?.('error');
+            onStatusChange?.(
+              'error',
+              'embedding-forbidden',
+              'La página web externa bloqueó la inserción en marco.'
+            );
           }}
         />
-        {isIframeBlocked && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center p-4 text-center z-10">
-            <ShieldAlert className="w-8 h-8 text-amber-400 mb-2" />
-            <p className="text-xs text-slate-200 font-semibold mb-1">
-              Inserción bloqueada por la página externa (X-Frame-Options)
-            </p>
-            <p className="text-[11px] text-slate-400 mb-3 max-w-xs">
-              Este sitio web no permite visualizarse dentro de recuadros de terceros por sus políticas de seguridad.
-            </p>
-            <a
-              href={slot.originalInput || slot.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-semibold flex items-center gap-1.5 transition"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>Abrir directamente</span>
-            </a>
-          </div>
-        )}
       </div>
     );
   }

@@ -124,8 +124,8 @@ export const StreamGrid: React.FC<StreamGridProps> = ({
                 <StreamPlayer
                   slot={slot}
                   isUnmuted={isAudioActive}
-                  onStatusChange={(status, error) => {
-                    onUpdateSlot(index, { status, errorMessage: error });
+                  onStatusChange={(status, diagnosticCode, error) => {
+                    onUpdateSlot(index, { status, diagnosticCode, errorMessage: error });
                   }}
                 />
               </div>
@@ -190,10 +190,11 @@ export const StreamGrid: React.FC<StreamGridProps> = ({
                     <StreamPlayer
                       slot={slot}
                       isUnmuted={isAudioActive}
-                      onStatusChange={(status, error) => {
-                        onUpdateSlot(index, { status, errorMessage: error });
+                      onStatusChange={(status, diagnosticCode, error) => {
+                        onUpdateSlot(index, { status, diagnosticCode, errorMessage: error });
                       }}
                       onRetry={() => onReloadStream(index)}
+                      onEditUrl={() => setEditingSlotIndex(index)}
                       onReplaceUrl={(newUrl) => onAddStream(index, newUrl)}
                     />
                   </div>

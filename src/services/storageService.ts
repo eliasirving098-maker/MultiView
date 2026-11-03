@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { HistoryItem, SavedPreset, StreamSlot, StreamType } from '../types/stream';
+import { HistoryItem, SavedPreset, SourceClassification, StreamSlot, StreamType } from '../types/stream';
 
 const STORAGE_KEYS = {
   PRESETS: 'multiview_presets_v1',
@@ -23,9 +23,9 @@ const DEFAULT_PRESETS: SavedPreset[] = [
     streams: [
       {
         index: 0,
-        url: 'https://tvsportslive.fr/baltimore-ravens-vs-buffalo-bills/',
-        title: 'Baltimore Ravens vs. Buffalo Bills (tvsportslive)',
-        type: 'sports-portal',
+        url: 'https://streamec.st/embed/ch32.php',
+        title: 'StreamEC Canal 32 — Ravens vs. Bills',
+        type: 'iframe-embed',
       },
       {
         index: 1,
@@ -206,7 +206,12 @@ export const storageService = {
     }
   },
 
-  addToHistory(url: string, title: string, type: StreamType): HistoryItem[] {
+  addToHistory(
+    url: string,
+    title: string,
+    type: StreamType,
+    classification?: SourceClassification
+  ): HistoryItem[] {
     if (!url.trim()) return this.getHistory();
     const history = this.getHistory().filter((item) => item.url !== url);
     const newItem: HistoryItem = {
@@ -214,6 +219,7 @@ export const storageService = {
       url,
       title: title || url,
       type,
+      classification: classification || 'unsupported',
       timestamp: Date.now(),
     };
     const updated = [newItem, ...history].slice(0, 25); // retain last 25

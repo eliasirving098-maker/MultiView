@@ -19,6 +19,8 @@ function createEmptySlots(count: number): StreamSlot[] {
     originalInput: '',
     title: `Canal ${index + 1}`,
     type: 'unsupported',
+    classification: 'unsupported',
+    diagnosticCode: 'none',
     isMuted: true,
     isPlaying: false,
     volume: 1,
@@ -48,9 +50,12 @@ export function useStreams(initialCount?: number) {
             originalInput: item.url,
             title: item.title || detected.title,
             type: detected.type,
+            classification: detected.classification,
             videoId: detected.videoId,
             channel: detected.channel,
-            status: 'loading',
+            status: detected.type === 'blob-resource' ? 'error' : 'loading',
+            diagnosticCode: detected.diagnosticCode || 'none',
+            errorMessage: detected.reason,
           };
         }
       });
@@ -79,9 +84,11 @@ export function useStreams(initialCount?: number) {
           originalInput: rawUrl,
           title: detected.title || `Stream ${index + 1}`,
           type: detected.type,
+          classification: detected.classification,
           videoId: detected.videoId,
           channel: detected.channel,
-          status: 'loading',
+          status: detected.type === 'blob-resource' ? 'error' : 'loading',
+          diagnosticCode: detected.diagnosticCode || 'none',
           errorMessage: detected.reason,
           reloadKey: updated[index].reloadKey + 1,
         };
@@ -90,7 +97,7 @@ export function useStreams(initialCount?: number) {
     });
 
     if (detected.type !== 'unsupported') {
-      storageService.addToHistory(rawUrl, detected.title, detected.type);
+      storageService.addToHistory(rawUrl, detected.title, detected.type, detected.classification);
     }
   }, []);
 
@@ -174,9 +181,12 @@ export function useStreams(initialCount?: number) {
             originalInput: item.url,
             title: item.title || detected.title,
             type: detected.type,
+            classification: detected.classification,
             videoId: detected.videoId,
             channel: detected.channel,
-            status: 'loading',
+            status: detected.type === 'blob-resource' ? 'error' : 'loading',
+            diagnosticCode: detected.diagnosticCode || 'none',
+            errorMessage: detected.reason,
           };
         }
       });

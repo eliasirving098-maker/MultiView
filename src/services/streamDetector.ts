@@ -6,26 +6,52 @@
 import { StreamDetectionResult, StreamType } from '../types/stream';
 
 /**
- * Detects the media source type and prepares appropriate embed / stream parameters.
+ * Detects and classifies the media source according to web architecture standards:
+ * - web-page: full HTML website / portal
+ * - iframe-embed: standalone embed document for iframe display
+ * - external-player: official platform embeds (YouTube, Twitch, Vimeo, Dailymotion)
+ * - direct-media: direct video (.mp4/.webm) or streaming manifests (.m3u8 HLS / .mpd DASH)
+ * - blob-resource: ephemeral local blob: URLs
  */
-export function detectStreamSource(rawUrl: string, currentHost: string = window.location.hostname): StreamDetectionResult {
+export function detectStreamSource(
+  rawUrl: string,
+  currentHost: string = window.location.hostname
+): StreamDetectionResult {
   const url = rawUrl.trim();
 
   if (!url) {
     return {
       type: 'unsupported',
+      classification: 'unsupported',
       originalUrl: '',
       embedUrl: '',
       title: 'URL vacía',
       isEmbeddable: false,
+      diagnosticCode: 'incompatible-resource',
       reason: 'Por favor introduce una dirección URL válida.',
     };
   }
 
-  // Normalize protocol if missing
+  // 1. Blob Resource Detection
+  // A blob: URL is ephemeral and bound strictly to the origin/context that instantiated it via URL.createObjectURL()
+  if (url.startsWith('blob:')) {
+    return {
+      type: 'blob-resource',
+      classification: 'blob-resource',
+      originalUrl: url,
+      embedUrl: '',
+      title: 'Recurso Blob Local (No Transferible)',
+      isEmbeddable: false,
+      diagnosticCode: 'incompatible-resource',
+      reason: 'Las direcciones blob: son identificadores efímeros creados en la memoria local de la pestaña de origen.',
+      guidance:
+        'No es posible transferir un recurso blob: entre pestañas, dominios o recuadros distintos. Para visualizar este contenido en MULTIVIEW, introduce la URL del reproductor embed oficial o la dirección HLS (.m3u8) del stream.',
+    };
+  }
+
+  // Normalize protocol
   let normalizedUrl = url;
   if (!/^https?:\/\//i.test(normalizedUrl)) {
-    // If user enters youtu.be/... or twitch.tv/...
     normalizedUrl = 'https://' + normalizedUrl;
   }
 
@@ -35,10 +61,12 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
   } catch {
     return {
       type: 'unsupported',
+      classification: 'unsupported',
       originalUrl: url,
       embedUrl: '',
       title: 'Enlace no válido',
       isEmbeddable: false,
+      diagnosticCode: 'incompatible-resource',
       reason: 'El formato de la URL no es válido.',
     };
   }
@@ -46,7 +74,7 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
   const hostname = parsed.hostname.toLowerCase();
   const pathname = parsed.pathname;
 
-  // 1. YouTube Detection
+  // 2. YouTube Detection (Official IFrame API)
   if (
     hostname.includes('youtube.com') ||
     hostname.includes('youtu.be') ||
@@ -55,33 +83,28 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
     let videoId = '';
 
     if (hostname.includes('youtu.be')) {
-      // youtu.be/VIDEO_ID
       videoId = pathname.slice(1).split('/')[0].split('?')[0];
     } else if (pathname.includes('/live/')) {
-      // youtube.com/live/VIDEO_ID
       const parts = pathname.split('/live/');
       videoId = parts[1]?.split('/')[0]?.split('?')[0] || '';
     } else if (pathname.includes('/shorts/')) {
-      // youtube.com/shorts/VIDEO_ID
       const parts = pathname.split('/shorts/');
       videoId = parts[1]?.split('/')[0]?.split('?')[0] || '';
     } else if (pathname.includes('/embed/')) {
-      // youtube.com/embed/VIDEO_ID
       const parts = pathname.split('/embed/');
       videoId = parts[1]?.split('/')[0]?.split('?')[0] || '';
     } else {
-      // youtube.com/watch?v=VIDEO_ID
       videoId = parsed.searchParams.get('v') || '';
     }
 
     if (videoId) {
-      const parentDomain = currentHost || 'localhost';
       const embedUrl = `https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1&autoplay=1&mute=1&playsinline=1&controls=1&rel=0&origin=${encodeURIComponent(
         window.location.origin
       )}`;
 
       return {
         type: 'youtube',
+        classification: 'external-player',
         originalUrl: url,
         embedUrl,
         title: `YouTube: ${videoId}`,
@@ -91,15 +114,15 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
     }
   }
 
-  // 2. Twitch Detection
+  // 3. Twitch Detection (Interactive Embed)
   if (hostname.includes('twitch.tv')) {
     const parentHost = currentHost || 'localhost';
-    // Check if video or channel
     if (pathname.includes('/videos/')) {
       const videoId = pathname.split('/videos/')[1]?.split('/')[0] || '';
       if (videoId) {
         return {
           type: 'twitch',
+          classification: 'external-player',
           originalUrl: url,
           embedUrl: `https://player.twitch.tv/?video=${videoId}&parent=${parentHost}&autoplay=true&muted=true`,
           title: `Twitch Video: ${videoId}`,
@@ -108,11 +131,11 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
         };
       }
     } else {
-      // Channel: twitch.tv/{channelName}
       const channel = pathname.split('/')[1]?.split('?')[0] || '';
       if (channel && channel !== 'directory' && channel !== 'p') {
         return {
           type: 'twitch',
+          classification: 'external-player',
           originalUrl: url,
           embedUrl: `https://player.twitch.tv/?channel=${channel}&parent=${parentHost}&autoplay=true&muted=true`,
           title: `Twitch: ${channel}`,
@@ -123,14 +146,14 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
     }
   }
 
-  // 3. Vimeo Detection
+  // 4. Vimeo Detection
   if (hostname.includes('vimeo.com')) {
-    // vimeo.com/{id} or player.vimeo.com/video/{id}
     const match = pathname.match(/\/(?:video\/)?([0-9]+)/);
     const videoId = match ? match[1] : '';
     if (videoId) {
       return {
         type: 'vimeo',
+        classification: 'external-player',
         originalUrl: url,
         embedUrl: `https://player.vimeo.com/video/${videoId}?autoplay=1&muted=1&dnt=1&playsinline=1`,
         title: `Vimeo: ${videoId}`,
@@ -140,7 +163,7 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
     }
   }
 
-  // 4. Dailymotion Detection
+  // 5. Dailymotion Detection
   if (hostname.includes('dailymotion.com') || hostname.includes('dai.ly')) {
     let videoId = '';
     if (hostname.includes('dai.ly')) {
@@ -151,6 +174,7 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
     if (videoId) {
       return {
         type: 'dailymotion',
+        classification: 'external-player',
         originalUrl: url,
         embedUrl: `https://www.dailymotion.com/embed/video/${videoId}?autoplay=1&mute=1`,
         title: `Dailymotion: ${videoId}`,
@@ -160,10 +184,11 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
     }
   }
 
-  // 5. HLS Stream (.m3u8) Detection
+  // 6. Direct HLS Stream (.m3u8)
   if (pathname.endsWith('.m3u8') || url.includes('.m3u8')) {
     return {
       type: 'hls',
+      classification: 'direct-media',
       originalUrl: url,
       embedUrl: url,
       title: getFileNameFromUrl(pathname, 'HLS Live Stream'),
@@ -171,10 +196,11 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
     };
   }
 
-  // 6. MPEG-DASH (.mpd) Detection
+  // 7. Direct MPEG-DASH Stream (.mpd)
   if (pathname.endsWith('.mpd') || url.includes('.mpd')) {
     return {
       type: 'dash',
+      classification: 'direct-media',
       originalUrl: url,
       embedUrl: url,
       title: getFileNameFromUrl(pathname, 'MPEG-DASH Stream'),
@@ -182,10 +208,14 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
     };
   }
 
-  // 7. Direct HTML5 Video (.mp4, .webm, .ogg, .mov, .m4v)
-  if (/\.(mp4|webm|ogg|ogv|mov|m4v)($|\?)/i.test(pathname) || /\.(mp4|webm|ogg|ogv|mov|m4v)($|\?)/i.test(url)) {
+  // 8. Direct HTML5 Video (.mp4, .webm, .ogg, .mov, .m4v)
+  if (
+    /\.(mp4|webm|ogg|ogv|mov|m4v)($|\?)/i.test(pathname) ||
+    /\.(mp4|webm|ogg|ogv|mov|m4v)($|\?)/i.test(url)
+  ) {
     return {
       type: 'html5',
+      classification: 'direct-media',
       originalUrl: url,
       embedUrl: url,
       title: getFileNameFromUrl(pathname, 'Video HTML5'),
@@ -193,77 +223,84 @@ export function detectStreamSource(rawUrl: string, currentHost: string = window.
     };
   }
 
-  // 8. Sports Streaming & Event Portals / Embeds (streamec.st, tvsportslive.fr, embedcenter.st, rojadirecta, streameast, etc.)
-  const isSportsPortal =
-    hostname.includes('streamec') ||
+  // 9. Embed Documents specifically intended for iframe inclusion (e.g. /embed/, embedcenter, streamec embed endpoints)
+  const isEmbedDocument =
+    pathname.includes('/embed/') ||
+    pathname.startsWith('/embed') ||
     hostname.includes('embedcenter') ||
     hostname.includes('streamscenter') ||
-    hostname.includes('tvsportslive') ||
-    hostname.includes('rojadirecta') ||
-    hostname.includes('streameast') ||
-    hostname.includes('daddylive') ||
-    hostname.includes('tarjetaroja') ||
-    hostname.includes('sportshub') ||
-    hostname.includes('viprow') ||
-    hostname.includes('crackstream') ||
-    hostname.includes('totalsportek') ||
+    hostname.includes('streamec') ||
     hostname.includes('voodc') ||
-    hostname.includes('embedstream') ||
-    (pathname.includes('/embed/') && !hostname.includes('youtube') && !hostname.includes('dailymotion')) ||
-    pathname.includes('-vs-');
+    hostname.includes('embedstream');
 
-  if (isSportsPortal) {
-    const matchTitle = formatSportsTitle(pathname, hostname);
-    const isEmbedService =
-      hostname.includes('streamec') ||
-      hostname.includes('embedcenter') ||
-      hostname.includes('streamscenter') ||
-      hostname.includes('edgestream') ||
-      hostname.includes('voodc') ||
-      hostname.includes('embedstream') ||
-      hostname.includes('tvsportslive') ||
-      pathname.includes('/embed/');
-
-    let targetStreamUrl = normalizedUrl;
-    if (url.includes('baltimore-ravens-vs-buffalo-bills')) {
-      targetStreamUrl = 'https://streamec.st/embed/ch32.php';
-    }
-
-    const embedUrl = `/api/proxy-player?url=${encodeURIComponent(targetStreamUrl)}`;
-
+  if (isEmbedDocument) {
+    const title = formatEmbedTitle(pathname, hostname);
     return {
-      type: 'sports-portal',
+      type: 'iframe-embed',
+      classification: 'iframe-embed',
       originalUrl: url,
-      embedUrl,
-      title: matchTitle,
+      embedUrl: normalizedUrl,
+      title,
       isEmbeddable: true,
-      reason: 'Reproductor optimizado (filtro anti-bloqueo y sin anuncios activo).',
+      reason: 'Documento embed externo diseñado para inserción iframe.',
     };
   }
 
-  // 9. Generic Web Page / Other
-  // Check if it's a generic web URL that might support iframe embedding
+  // 10. Web Page / Portal (Full HTML page that contains navigation, headers, scripts, or nested players)
+  const isWebPage =
+    hostname.includes('tvsportslive') ||
+    hostname.includes('rojadirecta') ||
+    hostname.includes('streameast') ||
+    hostname.includes('tarjetaroja') ||
+    hostname.includes('sportshub') ||
+    pathname.includes('-vs-') ||
+    pathname.endsWith('.html') ||
+    pathname.endsWith('.htm') ||
+    pathname === '/' ||
+    pathname === '';
+
+  const pageTitle = formatWebPageTitle(pathname, hostname);
+
   return {
-    type: 'iframe',
+    type: 'web-page',
+    classification: 'web-page',
     originalUrl: url,
     embedUrl: normalizedUrl,
-    title: hostname.replace('www.', ''),
+    title: pageTitle,
     isEmbeddable: true,
-    reason: 'Página web externa. Si el sitio bloquea la inserción (X-Frame-Options), puedes abrirlo externamente.',
+    reason:
+      'Página web completa. Contiene interfaz web, scripts y posibles reproductores anidados.',
+    guidance:
+      'Si el servidor del sitio aplica directivas de seguridad (X-Frame-Options o CSP frame-ancestors), el navegador impedirá su inserción en marcos. En ese caso, utiliza el botón de apertura en ventana flotante para visualizarlo directamente en su contexto original.',
   };
 }
 
-function formatSportsTitle(pathname: string, hostname: string): string {
+function formatEmbedTitle(pathname: string, hostname: string): string {
   try {
     const cleanPath = pathname.replace(/^\/+|\/+$/g, '');
     const segments = cleanPath.split('/');
     const lastSegment = segments[segments.length - 1] || '';
 
-    // Check channel numbers like ch32.php, ch-32, stream32
     const chMatch = lastSegment.match(/ch(?:annel)?[-_]?([0-9]+)/i);
     if (chMatch) {
-      return `Canal Deportivo Live CH-${chMatch[1]} (${hostname.replace('www.', '')})`;
+      return `Canal Embed CH-${chMatch[1]} (${hostname.replace('www.', '')})`;
     }
+
+    if (lastSegment && lastSegment !== 'embed') {
+      const cleanName = lastSegment.replace(/\.php|\.html/g, '');
+      return `Embed: ${cleanName} (${hostname.replace('www.', '')})`;
+    }
+  } catch {
+    // fallback
+  }
+  return `Reproductor Embed (${hostname.replace('www.', '')})`;
+}
+
+function formatWebPageTitle(pathname: string, hostname: string): string {
+  try {
+    const cleanPath = pathname.replace(/^\/+|\/+$/g, '');
+    const segments = cleanPath.split('/');
+    const lastSegment = segments[segments.length - 1] || '';
 
     if (lastSegment.includes('-vs-')) {
       const [teamA, teamB] = lastSegment.split('-vs-');
@@ -276,11 +313,10 @@ function formatSportsTitle(pathname: string, hostname: string): string {
       return `${formatTeam(teamA)} vs. ${formatTeam(teamB)}`;
     }
 
-    if (lastSegment && lastSegment !== 'embed') {
-      const cleanName = lastSegment.replace(/\.php|\.html/g, '');
+    if (lastSegment) {
       return (
-        cleanName
-          .split(/[-_]/)
+        lastSegment
+          .split('-')
           .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
           .join(' ') + ` (${hostname.replace('www.', '')})`
       );
@@ -288,7 +324,7 @@ function formatSportsTitle(pathname: string, hostname: string): string {
   } catch {
     // fallback
   }
-  return `Deportes En Vivo (${hostname.replace('www.', '')})`;
+  return `Portal Web (${hostname.replace('www.', '')})`;
 }
 
 function getFileNameFromUrl(pathname: string, fallback: string): string {
@@ -309,32 +345,11 @@ function getFileNameFromUrl(pathname: string, fallback: string): string {
  */
 export const SAMPLE_STREAMS = [
   {
-    name: 'StreamEC Embed CH-32 (streamec.st)',
-    category: 'Deportes',
-    url: 'https://streamec.st/embed/ch32.php',
-    type: 'sports-portal' as StreamType,
-    badge: 'StreamEC Live',
-  },
-  {
-    name: 'Baltimore Ravens vs Buffalo Bills (tvsportslive.fr)',
-    category: 'Deportes',
-    url: 'https://tvsportslive.fr/baltimore-ravens-vs-buffalo-bills/',
-    type: 'sports-portal' as StreamType,
-    badge: 'NFL tvsports',
-  },
-  {
-    name: 'Baltimore Ravens vs Buffalo Bills (NFL Oficial)',
-    category: 'Deportes',
-    url: 'https://www.youtube.com/watch?v=21X5lGlDOfg',
-    type: 'youtube' as StreamType,
-    badge: 'NFL Feed HD',
-  },
-  {
-    name: 'Big Buck Bunny (MP4 Full HD)',
+    name: 'Big Buck Bunny (MP4 Direct 1080p)',
     category: 'HTML5',
     url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
     type: 'html5' as StreamType,
-    badge: 'MP4 1080p',
+    badge: 'Direct MP4',
   },
   {
     name: 'Sintel Tears of Steel (HLS Test)',
@@ -344,25 +359,18 @@ export const SAMPLE_STREAMS = [
     badge: 'HLS .m3u8',
   },
   {
-    name: 'Big Buck Bunny (HLS Akamai)',
+    name: 'Big Buck Bunny (HLS Akamai Live)',
     category: 'HLS',
     url: 'https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8',
     type: 'hls' as StreamType,
     badge: 'HLS Live',
   },
   {
-    name: 'Elephants Dream (MP4 HD)',
+    name: 'Elephants Dream (MP4 HD Direct)',
     category: 'HTML5',
     url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
     type: 'html5' as StreamType,
-    badge: 'MP4 HD',
-  },
-  {
-    name: 'For Bigger Blazes (MP4 Demo)',
-    category: 'HTML5',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-    type: 'html5' as StreamType,
-    badge: 'MP4 Demo',
+    badge: 'Direct MP4',
   },
   {
     name: 'NASA Live (YouTube Oficial)',
@@ -379,17 +387,31 @@ export const SAMPLE_STREAMS = [
     badge: 'YouTube Stream',
   },
   {
-    name: 'Twitch Esports Channel (Riot Games)',
+    name: 'Twitch Esports (Riot Games)',
     category: 'Twitch',
     url: 'https://www.twitch.tv/riotgames',
     type: 'twitch' as StreamType,
     badge: 'Twitch Live',
   },
   {
-    name: 'Vimeo Creative Video Showreel',
+    name: 'Vimeo Creative Showreel',
     category: 'Vimeo',
     url: 'https://vimeo.com/76979871',
     type: 'vimeo' as StreamType,
     badge: 'Vimeo HD',
+  },
+  {
+    name: 'StreamEC Embed CH-32 (streamec.st)',
+    category: 'Embed',
+    url: 'https://streamec.st/embed/ch32.php',
+    type: 'iframe-embed' as StreamType,
+    badge: 'Embed Doc',
+  },
+  {
+    name: 'Baltimore Ravens vs Buffalo Bills (tvsportslive.fr)',
+    category: 'Web',
+    url: 'https://tvsportslive.fr/baltimore-ravens-vs-buffalo-bills/',
+    type: 'web-page' as StreamType,
+    badge: 'Página Web',
   },
 ];

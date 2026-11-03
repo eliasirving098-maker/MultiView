@@ -15,6 +15,7 @@ import {
   Scaling,
   Play,
   Pause,
+  ExternalLink,
 } from 'lucide-react';
 import { StreamSlot } from '../types/stream';
 import { StreamStatus } from './StreamStatus';
@@ -44,6 +45,20 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
   onTogglePlayPause,
   onToggleAspectRatio,
 }) => {
+  const handleOpenPopup = () => {
+    const targetUrl = slot.originalInput || slot.url;
+    if (!targetUrl) return;
+    const width = 1000;
+    const height = 650;
+    const left = Math.max(0, (window.screen.width - width) / 2);
+    const top = Math.max(0, (window.screen.height - height) / 2);
+    window.open(
+      targetUrl,
+      `mv_player_${slot.id}`,
+      `width=${width},height=${height},top=${top},left=${left},status=no,menubar=no,toolbar=no,location=yes,resizable=yes,scrollbars=yes`
+    );
+  };
+
   return (
     <>
       {/* Top Bar Overlay */}
@@ -65,6 +80,15 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
 
         {/* Action icons */}
         <div className="pointer-events-auto flex items-center gap-1 bg-black/60 backdrop-blur-md p-1 rounded-xl border border-white/10 shadow-lg">
+          {/* Popout / Floating window */}
+          <button
+            onClick={handleOpenPopup}
+            title="Abrir en ventana flotante independiente (sin restricciones de marco)"
+            className="p-1.5 rounded-lg text-slate-300 hover:text-emerald-400 hover:bg-white/10 transition"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+          </button>
+
           {/* Edit / Change URL */}
           <button
             onClick={onEdit}

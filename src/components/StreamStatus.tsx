@@ -9,7 +9,7 @@ import { Radio, AlertCircle, Loader2 } from 'lucide-react';
 
 interface StreamStatusProps {
   type: StreamType;
-  status: 'idle' | 'loading' | 'playing' | 'paused' | 'error';
+  status: 'idle' | 'loading' | 'playing' | 'paused' | 'external-loaded' | 'error';
   isAudioActive: boolean;
   channelIndex: number;
 }
@@ -36,10 +36,12 @@ export const StreamStatus: React.FC<StreamStatusProps> = ({
         return { label: 'MPEG-DASH', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' };
       case 'html5':
         return { label: 'HTML5 Media', color: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
-      case 'sports-portal':
-        return { label: 'Deportes Live', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
-      case 'iframe':
-        return { label: 'Web Frame', color: 'bg-slate-700 text-slate-300 border-slate-600' };
+      case 'iframe-embed':
+        return { label: 'Embed Doc', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' };
+      case 'web-page':
+        return { label: 'Página Web', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' };
+      case 'blob-resource':
+        return { label: 'Blob Local', color: 'bg-rose-500/20 text-rose-300 border-rose-500/30' };
       default:
         return { label: 'Desconocido', color: 'bg-slate-800 text-slate-400 border-slate-700' };
     }
@@ -76,6 +78,22 @@ export const StreamStatus: React.FC<StreamStatusProps> = ({
         <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-500/40 text-[10px] font-mono text-sky-300">
           <Loader2 className="w-2.5 h-2.5 animate-spin" />
           CARGANDO
+        </span>
+      )}
+
+      {/* External Loaded indicator (unobservable cross-origin frame) */}
+      {status === 'external-loaded' && (
+        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/20 border border-blue-500/40 text-[10px] font-mono text-blue-300">
+          <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+          EXTERNO ACTIVO
+        </span>
+      )}
+
+      {/* Playing indicator */}
+      {status === 'playing' && (
+        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-[10px] font-mono text-emerald-300">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          EN VIVO
         </span>
       )}
 
