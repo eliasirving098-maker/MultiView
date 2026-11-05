@@ -300,8 +300,14 @@ export const storageService = {
       const simpleSlots = slots.map((s) => ({
         index: s.index,
         url: s.url,
+        originalInput: s.originalInput,
+        pageUrl: s.pageUrl,
+        embedUrl: s.embedUrl,
         title: s.title,
         type: s.type,
+        classification: s.classification,
+        resolutionMethod: s.resolutionMethod,
+        sandboxMode: s.sandboxMode,
       }));
       localStorage.setItem(STORAGE_KEYS.ACTIVE_SLOTS, JSON.stringify(simpleSlots));
     } catch {
@@ -309,7 +315,7 @@ export const storageService = {
     }
   },
 
-  getSavedSlotsState(): { index: number; url: string; title: string; type: StreamType }[] {
+  getSavedSlotsState(): Partial<StreamSlot>[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.ACTIVE_SLOTS);
       return data ? JSON.parse(data) : [];

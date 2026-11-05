@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, Tv, ArrowLeft, Pin } from 'lucide-react';
 import { SandboxMode, StreamSlot, StreamType } from '../types/stream';
+import { AddStreamOptions } from '../hooks/useStreams';
 import { StreamPlayer } from './StreamPlayer';
 import { StreamControls } from './StreamControls';
 import { StreamInput } from './StreamInput';
@@ -17,7 +18,13 @@ interface StreamGridProps {
   activeAudioSlotId: string | null;
   onToggleAudio: (slotId: string) => void;
   onSetMaximizedSlot: (slotId: string | null) => void;
-  onAddStream: (index: number, url: string, manualOverrideType?: StreamType, sandboxMode?: SandboxMode) => void;
+  onAddStream: (
+    index: number,
+    url: string,
+    manualOverrideType?: StreamType,
+    sandboxMode?: SandboxMode,
+    options?: AddStreamOptions
+  ) => void;
   onRemoveStream: (index: number) => void;
   onReloadStream: (index: number) => void;
   onUpdateSlot: (index: number, patch: Partial<StreamSlot>) => void;
@@ -33,7 +40,13 @@ interface StreamSlotTileProps {
   onSetEditingSlotIndex: (index: number | null) => void;
   onSetMaximizedSlot: (slotId: string | null) => void;
   onToggleAudio: (slotId: string) => void;
-  onAddStream: (index: number, url: string, manualOverrideType?: StreamType, sandboxMode?: SandboxMode) => void;
+  onAddStream: (
+    index: number,
+    url: string,
+    manualOverrideType?: StreamType,
+    sandboxMode?: SandboxMode,
+    options?: AddStreamOptions
+  ) => void;
   onRemoveStream: (index: number) => void;
   onReloadStream: (index: number) => void;
   onUpdateSlot: (index: number, patch: Partial<StreamSlot>) => void;
@@ -175,9 +188,10 @@ const StreamSlotTile: React.FC<StreamSlotTileProps> = ({
           <StreamInput
             channelIndex={index}
             initialUrl={slot.originalInput || slot.url}
+            initialEmbedUrl={slot.embedUrl}
             initialSandboxMode={slot.sandboxMode || 'no-sandbox'}
-            onConfirm={(newUrl, manualOverrideType, sandboxMode) => {
-              onAddStream(index, newUrl, manualOverrideType, sandboxMode);
+            onConfirm={(newUrl, manualOverrideType, sandboxMode, options) => {
+              onAddStream(index, newUrl, manualOverrideType, sandboxMode, options);
               onSetEditingSlotIndex(null);
             }}
             onCancel={() => onSetEditingSlotIndex(null)}

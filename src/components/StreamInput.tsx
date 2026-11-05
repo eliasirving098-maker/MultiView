@@ -17,50 +17,189 @@ import {
   Code,
   Layers,
   ShieldCheck,
+  Search,
+  Loader2,
+  Globe,
+  ArrowRight,
+  Info,
+  Tv,
 } from 'lucide-react';
-import { detectStreamSource, SAMPLE_STREAMS } from '../services/streamDetector';
+import {
+  detectStreamSource,
+  resolveEmbedCandidates,
+  SAMPLE_STREAMS,
+} from '../services/streamDetector';
 import { isIframeSnippet, parseIframeSnippet } from '../services/iframeParser';
 import { storageService } from '../services/storageService';
-import { HistoryItem, SandboxMode, StreamType } from '../types/stream';
+import {
+  EmbedCandidate,
+  HistoryItem,
+  SandboxMode,
+  StreamType,
+} from '../types/stream';
+import { AddStreamOptions } from '../hooks/useStreams';
 
 interface StreamInputProps {
   channelIndex: number;
   initialUrl?: string;
+  initialEmbedUrl?: string;
   initialSandboxMode?: SandboxMode;
-  onConfirm: (url: string, manualOverrideType?: StreamType, sandboxMode?: SandboxMode) => void;
+  onConfirm: (
+    url: string,
+    manualOverrideType?: StreamType,
+    sandboxMode?: SandboxMode,
+    options?: AddStreamOptions
+  ) => void;
   onCancel?: () => void;
 }
 
 export const StreamInput: React.FC<StreamInputProps> = ({
   channelIndex,
   initialUrl = '',
+  initialEmbedUrl = '',
   initialSandboxMode = 'no-sandbox',
   onConfirm,
   onCancel,
 }) => {
-  const [url, setUrl] = useState(initialUrl);
+  // Main view tab
+  const [activeTab, setActiveTab] = useState<'stream' | 'samples' | 'history'>('stream');
+
+  // Input method mode: 'auto' (Automatic Resolution) vs 'manual' (Manual Embed Input)
+  const [inputMode, setInputMode] = useState<'auto' | 'manual'>(
+    initialEmbedUrl ? 'manual' : 'auto'
+  );
+
+  // Automatic mode state
+  const [autoUrl, setAutoUrl] = useState(initialUrl);
+  const [isResolving, setIsResolving] = useState(false);
+  const [resolvedCandidates, setResolvedCandidates] = useState<EmbedCandidate[]>([]);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [resolveAttempted, setResolveAttempted] = useState(false);
+
+  // Manual mode state: Dual inputs (Original Page URL + Direct Embed URL / Iframe code)
+  const [manualPageUrl, setManualPageUrl] = useState(initialUrl);
+  const [manualEmbedInput, setManualEmbedInput] = useState(initialEmbedUrl || (isIframeSnippet(initialUrl) ? initialUrl : ''));
+
+  // Common options
   const [manualType, setManualType] = useState<'auto' | StreamType>('auto');
   const [sandboxMode, setSandboxMode] = useState<SandboxMode>(initialSandboxMode);
-  const [activeTab, setActiveTab] = useState<'custom' | 'samples' | 'history'>('custom');
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
     setHistory(storageService.getHistory());
   }, []);
 
-  const hasIframeSnippet = isIframeSnippet(url);
-  const parsedIframe = hasIframeSnippet ? parseIframeSnippet(url) : null;
-  const detection = url.trim() ? detectStreamSource(url) : null;
+  // Real-time analysis for Automatic URL
+  const autoDetection = autoUrl.trim() ? detectStreamSource(autoUrl.trim()) : null;
+  const isAutoWebPage = autoDetection?.classification === 'web-page';
 
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!url.trim()) return;
-    const override = manualType === 'auto' ? undefined : manualType;
-    onConfirm(url.trim(), override, sandboxMode);
+  // Real-time analysis for Manual Embed Input
+  const manualHasIframe = isIframeSnippet(manualEmbedInput);
+  const manualParsedIframe = manualHasIframe ? parseIframeSnippet(manualEmbedInput) : null;
+  const manualEffectiveEmbedUrl = manualHasIframe
+    ? manualParsedIframe?.src || ''
+    : manualEmbedInput.trim();
+
+  // Trigger Automatic Resolver
+  const handleAutoResolve = async () => {
+    const trimmed = autoUrl.trim();
+    if (!trimmed) return;
+
+    // If it is already a direct embed or direct media, no need to resolve HTML
+    if (autoDetection && !isAutoWebPage) {
+      handleConfirmDirectAuto();
+      return;
+    }
+
+    setIsResolving(true);
+    setResolveError(null);
+    setResolveAttempted(true);
+    setResolvedCandidates([]);
+
+    try {
+      const res = await resolveEmbedCandidates(trimmed);
+      if (res.success && res.candidates.length > 0) {
+        setResolvedCandidates(res.candidates);
+      } else {
+        setResolveError(
+          res.reason ||
+            'No pudimos localizar automáticamente un reproductor compatible en esta página. Si tienes el enlace directo del reproductor o su código <iframe>, puedes introducirlo en el modo manual.'
+        );
+      }
+    } catch (err: any) {
+      setResolveError(
+        'Error de conexión al analizar la página. Si tienes el enlace directo del reproductor o su código <iframe>, puedes introducirlo en el modo manual.'
+      );
+    } finally {
+      setIsResolving(false);
+    }
   };
 
+  // Confirm loading a specific resolved candidate
+  const handleSelectCandidate = (candidate: EmbedCandidate) => {
+    const override = manualType === 'auto' ? candidate.type : manualType;
+    onConfirm(autoUrl.trim(), override, sandboxMode, {
+      embedUrl: candidate.url,
+      pageUrl: autoUrl.trim(),
+      resolutionMethod: 'auto-resolved',
+      candidateEmbeds: resolvedCandidates,
+      title: candidate.title,
+    });
+  };
+
+  // Direct confirm in Auto mode (for direct media, official embeds, or direct web page)
+  const handleConfirmDirectAuto = (forceWebPage = false) => {
+    const trimmed = autoUrl.trim();
+    if (!trimmed) return;
+
+    if (forceWebPage) {
+      onConfirm(trimmed, 'web-page', sandboxMode, {
+        embedUrl: trimmed,
+        pageUrl: trimmed,
+        resolutionMethod: 'web-page',
+      });
+      return;
+    }
+
+    const detected = detectStreamSource(trimmed);
+    const override = manualType === 'auto' ? undefined : manualType;
+    onConfirm(trimmed, override, sandboxMode, {
+      embedUrl: detected.embedUrl,
+      pageUrl: detected.pageUrl,
+      resolutionMethod: detected.resolutionMethod,
+      title: detected.title,
+    });
+  };
+
+  // Switch to Manual Mode carrying over the current page URL
+  const handleSwitchToManualWithPage = () => {
+    setManualPageUrl(autoUrl.trim());
+    setInputMode('manual');
+  };
+
+  // Confirm Manual Embed Input
+  const handleConfirmManual = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+
+    if (!manualEffectiveEmbedUrl) {
+      return;
+    }
+
+    const effectivePage = manualPageUrl.trim() || undefined;
+    const finalUrl = effectivePage || manualEffectiveEmbedUrl;
+    const finalType: StreamType = manualType === 'auto' ? 'iframe-embed' : manualType;
+
+    onConfirm(finalUrl, finalType, sandboxMode, {
+      embedUrl: manualEffectiveEmbedUrl,
+      pageUrl: effectivePage,
+      resolutionMethod: 'manual-embed',
+      customIframeAttributes: manualParsedIframe?.attributes,
+      title: manualHasIframe ? 'Reproductor IFrame Manual' : undefined,
+    });
+  };
+
+  // Confirm Predefined sample
   const handleSelectPredefined = (selectedUrl: string, selectedType?: StreamType) => {
-    setUrl(selectedUrl);
     onConfirm(selectedUrl, selectedType, 'no-sandbox');
   };
 
@@ -86,19 +225,19 @@ export const StreamInput: React.FC<StreamInputProps> = ({
         )}
       </div>
 
-      {/* Tabs */}
+      {/* Main Tabs */}
       <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#101114] border border-white/5 mb-4 text-xs font-medium">
         <button
           type="button"
-          onClick={() => setActiveTab('custom')}
+          onClick={() => setActiveTab('stream')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-all ${
-            activeTab === 'custom'
+            activeTab === 'stream'
               ? 'bg-emerald-500 text-black font-semibold shadow-sm'
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          <Code className="w-3.5 h-3.5" />
-          <span>URL o Código IFrame</span>
+          <Tv className="w-3.5 h-3.5" />
+          <span>Cargar Transmisión</span>
         </button>
 
         <button
@@ -128,239 +267,445 @@ export const StreamInput: React.FC<StreamInputProps> = ({
         </button>
       </div>
 
-      {/* Tab 1: Custom URL or IFrame Code */}
-      {activeTab === 'custom' && (
-        <form onSubmit={handleSubmit} className="space-y-3.5">
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-slate-300">
-                Pega una URL o código completo &lt;iframe&gt;:
-              </label>
-              {hasIframeSnippet && (
-                <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                  <ShieldCheck className="w-3 h-3" />
-                  Código IFrame Detectado
-                </span>
-              )}
-            </div>
-            <div className="relative">
-              <textarea
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                rows={hasIframeSnippet ? 3 : 2}
-                placeholder="Pega un enlace (YouTube, Twitch, .m3u8, .mpd, MP4) o un código <iframe src=...></iframe>"
-                className="w-full rounded-xl bg-[#101114] border border-white/10 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500/80 font-mono transition resize-none"
-                autoFocus
-              />
-              {url && (
-                <button
-                  type="button"
-                  onClick={() => setUrl('')}
-                  className="absolute right-2.5 top-2.5 text-slate-500 hover:text-white p-1"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+      {/* Tab: Cargar Transmisión */}
+      {activeTab === 'stream' && (
+        <div className="space-y-4">
+          {/* Method Selector: Modo Automático vs Modo Manual Embed */}
+          <div className="grid grid-cols-2 gap-2 p-1 bg-[#101114] rounded-xl border border-white/5">
+            <button
+              type="button"
+              onClick={() => setInputMode('auto')}
+              className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition ${
+                inputMode === 'auto'
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>1. Resolución Automática</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setInputMode('manual')}
+              className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition ${
+                inputMode === 'manual'
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Code className="w-3.5 h-3.5" />
+              <span>2. Entrada Manual Embed</span>
+            </button>
           </div>
 
-          {/* Parsed Iframe Sanitization Badge */}
-          {hasIframeSnippet && parsedIframe && parsedIframe.isValid && (
-            <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs space-y-1">
-              <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>IFrame Sanitizado y Validado:</span>
+          {/* ========================================================
+              MODO 1: RESOLUCIÓN AUTOMÁTICA
+             ======================================================== */}
+          {inputMode === 'auto' && (
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  URL de la página web completa o enlace de transmisión:
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={autoUrl}
+                    onChange={(e) => {
+                      setAutoUrl(e.target.value);
+                      setResolveAttempted(false);
+                      setResolvedCandidates([]);
+                      setResolveError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (isAutoWebPage) {
+                          handleAutoResolve();
+                        } else {
+                          handleConfirmDirectAuto();
+                        }
+                      }
+                    }}
+                    placeholder="https://tvsportslive.fr/... o YouTube, .m3u8, direct video"
+                    className="w-full rounded-xl bg-[#101114] border border-white/10 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500/80 font-mono transition"
+                    autoFocus
+                  />
+                  {autoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAutoUrl('');
+                        setResolvedCandidates([]);
+                        setResolveError(null);
+                        setResolveAttempted(false);
+                      }}
+                      className="absolute right-2.5 top-2.5 text-slate-500 hover:text-white p-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
-              <p className="text-[11px] text-slate-300 font-mono truncate">
-                SRC: {parsedIframe.src}
-              </p>
-              {parsedIframe.attributes.allow && (
-                <p className="text-[10px] text-slate-400 font-mono truncate">
-                  Permisos: {parsedIframe.attributes.allow}
-                </p>
-              )}
-            </div>
-          )}
 
-          {/* Real-time detection card */}
-          {detection && !hasIframeSnippet && (
-            <div className="p-3 rounded-xl bg-[#101114] border border-white/5 space-y-1.5 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400 font-mono text-[11px]">Clasificación:</span>
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase border ${
-                    detection.classification === 'blob-resource'
-                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                      : detection.classification === 'web-page'
-                      ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                      : detection.classification === 'iframe-embed'
-                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
-                      : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                  }`}
+              {/* Source Classification Hint */}
+              {autoDetection && (
+                <div className="p-3 rounded-xl bg-[#101114] border border-white/5 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 font-mono text-[11px]">Tipo Detectado:</span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase border ${
+                        autoDetection.classification === 'blob-resource'
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          : autoDetection.classification === 'web-page'
+                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                          : autoDetection.classification === 'iframe-embed'
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      }`}
+                    >
+                      {autoDetection.classification}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-200 font-mono font-medium truncate">
+                    {autoDetection.title || autoDetection.originalUrl}
+                  </div>
+                  {autoDetection.reason && (
+                    <div className="text-[11px] text-slate-300 pt-1 border-t border-white/5">
+                      {autoDetection.reason}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Auto Resolve Action Button */}
+              {isAutoWebPage && (
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAutoResolve}
+                    disabled={isResolving || !autoUrl.trim()}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black text-xs font-bold transition shadow-lg shadow-emerald-950/40 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isResolving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Analizando página y buscando reproductores embed...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        <span>Localizar Reproductor Automáticamente</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Resolved Candidates List */}
+              {resolvedCandidates.length > 0 && (
+                <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <span>
+                        {resolvedCandidates.length === 1
+                          ? '1 Reproductor Detectado:'
+                          : `${resolvedCandidates.length} Reproductores Detectados:`}
+                      </span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">Selecciona uno para cargar</span>
+                  </div>
+
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {resolvedCandidates.map((candidate, idx) => (
+                      <div
+                        key={candidate.id || idx}
+                        className="p-2.5 rounded-lg bg-[#14161b] border border-white/10 hover:border-emerald-500/60 transition flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] font-bold text-white truncate">
+                              {candidate.title || candidate.sourceHostname}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase ${
+                                candidate.confidence === 'high'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              }`}
+                            >
+                              {candidate.confidence === 'high' ? 'Alta Confianza' : 'Candidato'}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-mono truncate">
+                            {candidate.url}
+                          </p>
+                          {candidate.note && (
+                            <p className="text-[10px] text-slate-500">{candidate.note}</p>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSelectCandidate(candidate)}
+                          className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-sm cursor-pointer"
+                        >
+                          <Play className="w-3 h-3 fill-current" />
+                          <span>Usar este</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Resolution Failure Notice & Manual Fallback Button */}
+              {resolveAttempted && resolveError && (
+                <div className="p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/40 text-xs space-y-2.5">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="text-amber-200 font-medium leading-relaxed">
+                        {resolveError}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSwitchToManualWithPage}
+                    className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold border border-amber-500/40 transition cursor-pointer"
+                  >
+                    <Code className="w-3.5 h-3.5" />
+                    <span>Introducir Enlace Directo en Entrada Manual</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Direct confirm button for non-web pages (Direct media, YouTube, Embed) or Direct Web Page Frame */}
+              {!isAutoWebPage && autoUrl.trim() && (
+                <button
+                  type="button"
+                  onClick={() => handleConfirmDirectAuto(false)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-lg shadow-emerald-950/40 cursor-pointer"
                 >
-                  {detection.classification}
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-200 truncate font-mono font-medium">
-                {detection.title || detection.originalUrl}
-              </div>
-              {detection.reason && (
-                <div className="text-[11px] text-slate-300 pt-1 border-t border-white/5 leading-normal">
-                  {detection.reason}
-                </div>
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Cargar Transmisión en Canal {channelIndex + 1}</span>
+                </button>
               )}
-              {detection.guidance && (
-                <div className="flex items-start gap-1.5 text-[10px] text-amber-300/90 pt-1 leading-normal bg-amber-950/20 p-2 rounded-lg border border-amber-500/20">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-400" />
-                  <span>{detection.guidance}</span>
+
+              {/* Option to load whole webpage directly if desired */}
+              {isAutoWebPage && !resolvedCandidates.length && (
+                <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500">¿Deseas probar cargar el sitio completo?</span>
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmDirectAuto(true)}
+                    className="text-[11px] text-slate-400 hover:text-emerald-400 underline transition"
+                  >
+                    Cargar marco directo
+                  </button>
                 </div>
               )}
             </div>
           )}
 
-          {/* Manual Player Selection Option */}
+          {/* ========================================================
+              MODO 2: ENTRADA MANUAL DE URL EMBED / CÓDIGO IFRAME
+             ======================================================== */}
+          {inputMode === 'manual' && (
+            <form onSubmit={handleConfirmManual} className="space-y-3.5">
+              {/* Field 1: Original Web Page URL */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  1. URL de la página web de origen <span className="text-slate-500">(Opcional / Referencia)</span>:
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={manualPageUrl}
+                    onChange={(e) => setManualPageUrl(e.target.value)}
+                    placeholder="https://tvsportslive.fr/baltimore-ravens-vs-buffalo-bills/"
+                    className="w-full rounded-xl bg-[#101114] border border-white/10 px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/80 font-mono transition"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Permite identificar la fuente original del evento o partido en la vista múltiple.
+                </p>
+              </div>
+
+              {/* Field 2: Direct Embed URL or Iframe Code */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-slate-300">
+                    2. URL directa del reproductor o código HTML &lt;iframe&gt; <span className="text-emerald-400">*</span>:
+                  </label>
+                  {manualHasIframe && (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      <ShieldCheck className="w-3 h-3" />
+                      &lt;iframe&gt; detectado
+                    </span>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <textarea
+                    value={manualEmbedInput}
+                    onChange={(e) => setManualEmbedInput(e.target.value)}
+                    rows={manualHasIframe ? 3 : 2}
+                    placeholder="Pega la URL del embed (ej. https://play.aurasportsplayer.cfd/...) o la etiqueta completa <iframe src=...></iframe>"
+                    className="w-full rounded-xl bg-[#101114] border border-white/10 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500/80 font-mono transition resize-none"
+                    autoFocus
+                  />
+                  {manualEmbedInput && (
+                    <button
+                      type="button"
+                      onClick={() => setManualEmbedInput('')}
+                      className="absolute right-2.5 top-2.5 text-slate-500 hover:text-white p-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Sanitized Iframe Preview */}
+              {manualHasIframe && manualParsedIframe && manualParsedIframe.isValid && (
+                <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs space-y-1">
+                  <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>IFrame Sanitizado y Validado para Inserción:</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 font-mono truncate">
+                    SRC: {manualParsedIframe.src}
+                  </p>
+                  {manualParsedIframe.attributes.allow && (
+                    <p className="text-[10px] text-slate-400 font-mono truncate">
+                      Permisos: {manualParsedIframe.attributes.allow}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* External Player Compatibility (Sandbox Control) */}
+              <div className="p-2.5 rounded-xl bg-[#101114] border border-white/5 text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-300 font-medium flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Compatibilidad de iframe:</span>
+                  </span>
+                  <select
+                    value={sandboxMode}
+                    onChange={(e) => setSandboxMode(e.target.value as SandboxMode)}
+                    className="bg-[#191b20] border border-white/10 text-white text-[11px] rounded-lg px-2.5 py-1 font-mono focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="no-sandbox">Sin sandbox (Recomendado para AuraSports/JWPlayer)</option>
+                    <option value="standard">Protección estándar (Con sandbox)</option>
+                  </select>
+                </div>
+                <p className="text-[10px] text-slate-400 leading-normal">
+                  El modo sin sandbox permite que reproductores complejos inicialicen trabajadores y sub-reproductores sin bloqueos.
+                </p>
+              </div>
+
+              {/* Submit button */}
+              <button
+                type="submit"
+                disabled={!manualEffectiveEmbedUrl}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-lg shadow-emerald-950/40 disabled:opacity-50 cursor-pointer"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                <span>Cargar Reproductor Embed en Canal {channelIndex + 1}</span>
+              </button>
+            </form>
+          )}
+
+          {/* Common Adapter Type Override selector (collapsed by default) */}
           <div className="flex items-center justify-between p-2 rounded-xl bg-[#101114] border border-white/5 text-xs">
             <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Adaptador de reproducción:</span>
+              <span>Adaptador forzado (Opcional):</span>
             </span>
             <select
               value={manualType}
               onChange={(e) => setManualType(e.target.value as any)}
-              className="bg-[#191b20] border border-white/10 text-white text-[11px] rounded-lg px-2.5 py-1 font-mono focus:outline-none focus:border-emerald-500"
+              className="bg-[#191b20] border border-white/10 text-white text-[11px] rounded-lg px-2 py-1 font-mono focus:outline-none focus:border-emerald-500"
             >
               <option value="auto">Automático (Recomendado)</option>
               <option value="iframe-embed">Embed IFrame (Prioridad)</option>
               <option value="hls">Streaming HLS (.m3u8)</option>
-              <option value="html5">Video Directo HTML5 (MP4 / WebM)</option>
-              <option value="dash">Streaming MPEG-DASH (.mpd)</option>
-              <option value="youtube">YouTube API</option>
-              <option value="twitch">Twitch Interactive</option>
-              <option value="vimeo">Vimeo SDK</option>
-              <option value="web-page">Página Web Completa</option>
+              <option value="html5">Video HTML5 (MP4 / WebM)</option>
+              <option value="dash">Streaming DASH (.mpd)</option>
+              <option value="youtube">YouTube</option>
+              <option value="twitch">Twitch</option>
+              <option value="vimeo">Vimeo</option>
+              <option value="web-page">Página Web</option>
             </select>
-          </div>
-
-          {/* External Player Compatibility (Sandbox Control) */}
-          <div className="p-2.5 rounded-xl bg-[#101114] border border-white/5 text-xs space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-slate-300 font-medium flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Compatibilidad del reproductor externo:</span>
-              </span>
-              <select
-                value={sandboxMode}
-                onChange={(e) => setSandboxMode(e.target.value as SandboxMode)}
-                className="bg-[#191b20] border border-white/10 text-white text-[11px] rounded-lg px-2.5 py-1 font-mono focus:outline-none focus:border-emerald-500"
-              >
-                <option value="no-sandbox">Compatibilidad sin sandbox (Recomendado)</option>
-                <option value="standard">Protección estándar (Con sandbox)</option>
-              </select>
-            </div>
-            <p className="text-[10px] text-slate-400 leading-normal">
-              {sandboxMode === 'no-sandbox'
-                ? 'El iframe se genera sin atributo sandbox. Permite decodificadores y workers de AuraSports, Streamec, Clappr, etc.'
-                : 'Aplica sandbox restrictivo. Puede bloquear la reproducción si el proveedor requiere subframes o workers.'}
-            </p>
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2">
-            {onCancel && (
-              <button
-                type="button"
-                onClick={onCancel}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-white/5 transition"
-              >
-                Cancelar
-              </button>
-            )}
-            <button
-              type="submit"
-              disabled={!url.trim()}
-              className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-black disabled:opacity-40 disabled:pointer-events-none transition shadow-md shadow-emerald-950/50 flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Cargar en Canal {channelIndex + 1}</span>
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* Tab 2: Sample Streams */}
-      {activeTab === 'samples' && (
-        <div className="space-y-2 max-h-80 overflow-y-auto pr-1 text-xs">
-          <p className="text-[11px] text-slate-400 mb-2">
-            Selecciona una fuente verificada para probar la reproducción inmediatamente:
-          </p>
-          <div className="grid grid-cols-1 gap-1.5">
-            {SAMPLE_STREAMS.map((sample, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => handleSelectPredefined(sample.url, sample.type)}
-                className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[#101114] hover:bg-emerald-500/10 border border-white/5 hover:border-emerald-500/30 text-left transition group"
-              >
-                <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                  <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-white/5 group-hover:bg-emerald-500/20 text-slate-300 group-hover:text-emerald-400 transition shrink-0">
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-medium text-slate-200 group-hover:text-white truncate">
-                      {sample.name}
-                    </p>
-                    <p className="text-[10px] text-slate-500 font-mono truncate">{sample.url}</p>
-                  </div>
-                </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-white/5 text-emerald-400 shrink-0 border border-white/5">
-                  {sample.badge}
-                </span>
-              </button>
-            ))}
           </div>
         </div>
       )}
 
-      {/* Tab 3: History */}
+      {/* Tab: Canales de Prueba */}
+      {activeTab === 'samples' && (
+        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+          <p className="text-xs text-slate-400 mb-2">
+            Selecciona una fuente verificada para probar la reproducción en MULTIVIEW:
+          </p>
+          {SAMPLE_STREAMS.map((sample, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => handleSelectPredefined(sample.url, sample.type)}
+              className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[#101114] border border-white/5 hover:border-emerald-500/50 hover:bg-[#14161b] transition text-left group"
+            >
+              <div className="min-w-0 pr-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-white group-hover:text-emerald-400 transition truncate">
+                    {sample.name}
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10">
+                    {sample.badge}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-500 font-mono truncate mt-0.5">
+                  {sample.url}
+                </div>
+              </div>
+              <Play className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-400 shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Tab: Historial */}
       {activeTab === 'history' && (
-        <div className="space-y-2 max-h-80 overflow-y-auto pr-1 text-xs">
+        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
           {history.length === 0 ? (
-            <div className="text-center py-8 text-slate-500 text-xs">
-              No hay enlaces en el historial reciente.
+            <div className="text-center py-8 text-xs text-slate-500">
+              No hay transmisiones previas en el historial.
             </div>
           ) : (
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[11px] text-slate-400 pb-1">
-                <span>Enlaces utilizados recientemente:</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    storageService.clearHistory();
-                    setHistory([]);
-                  }}
-                  className="text-red-400 hover:text-red-300 text-[10px]"
-                >
-                  Limpiar historial
-                </button>
-              </div>
-              {history.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => handleSelectPredefined(item.url, item.type)}
-                  className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[#101114] hover:bg-white/5 border border-white/5 text-left transition group"
-                >
-                  <div className="min-w-0 pr-2">
-                    <p className="font-medium text-slate-300 group-hover:text-white truncate">
-                      {item.title}
-                    </p>
-                    <p className="text-[10px] text-slate-500 font-mono truncate">{item.url}</p>
+            history.map((item, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handleSelectPredefined(item.url, item.type)}
+                className="w-full flex items-center justify-between p-2.5 rounded-xl bg-[#101114] border border-white/5 hover:border-emerald-500/50 hover:bg-[#14161b] transition text-left group"
+              >
+                <div className="min-w-0 pr-2">
+                  <div className="text-xs font-semibold text-white group-hover:text-emerald-400 transition truncate">
+                    {item.title || item.url}
                   </div>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-white/5 text-slate-400 uppercase shrink-0">
-                    {item.type}
-                  </span>
-                </button>
-              ))}
-            </div>
+                  <div className="text-[10px] text-slate-500 font-mono truncate mt-0.5">
+                    {item.url}
+                  </div>
+                </div>
+                <Play className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-400 shrink-0" />
+              </button>
+            ))
           )}
         </div>
       )}

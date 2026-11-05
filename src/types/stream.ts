@@ -37,6 +37,35 @@ export type DiagnosticCode =
 
 export type SandboxMode = 'standard' | 'no-sandbox';
 
+export type ResolutionMethod =
+  | 'direct-media'
+  | 'official-embed'
+  | 'auto-resolved'
+  | 'manual-embed'
+  | 'web-page'
+  | 'resolution-failed';
+
+export type ResolutionStatus =
+  | 'idle'
+  | 'resolving'
+  | 'resolved'
+  | 'multiple-choices'
+  | 'failed'
+  | 'manual';
+
+export interface EmbedCandidate {
+  id: string;
+  url: string;
+  title: string;
+  sourceHostname: string;
+  type: StreamType;
+  width?: string;
+  height?: string;
+  allow?: string;
+  confidence: 'high' | 'medium' | 'low';
+  note?: string;
+}
+
 export interface CustomIframeAttributes {
   allow?: string;
   allowFullScreen?: boolean;
@@ -49,12 +78,16 @@ export interface CustomIframeAttributes {
 export interface StreamSlot {
   id: string;
   index: number; // 0 to 5
-  url: string;
-  originalInput: string;
+  url: string; // The active URL used for playback (direct media, embed, or page)
+  originalInput: string; // The original URL or page entered by the user
+  pageUrl?: string; // If resolved from a full web page, stores the origin portal URL
   title: string;
   type: StreamType;
   classification: SourceClassification;
-  embedUrl?: string;
+  embedUrl?: string; // Specifically stores the resolved/manual embed URL
+  resolutionMethod?: ResolutionMethod;
+  resolutionStatus?: ResolutionStatus;
+  candidateEmbeds?: EmbedCandidate[];
   customIframeAttributes?: CustomIframeAttributes;
   manualOverrideType?: StreamType;
   sandboxMode?: SandboxMode;
@@ -75,7 +108,11 @@ export interface StreamDetectionResult {
   classification: SourceClassification;
   originalUrl: string;
   embedUrl: string;
+  pageUrl?: string;
   title: string;
+  resolutionMethod?: ResolutionMethod;
+  resolutionStatus?: ResolutionStatus;
+  candidateEmbeds?: EmbedCandidate[];
   customIframeAttributes?: CustomIframeAttributes;
   sandboxMode?: SandboxMode;
   videoId?: string;
@@ -103,6 +140,9 @@ export interface PresetStreamConfig {
   url: string;
   title: string;
   type: StreamType;
+  embedUrl?: string;
+  pageUrl?: string;
+  sandboxMode?: SandboxMode;
 }
 
 export interface SavedPreset {
@@ -117,9 +157,12 @@ export interface SavedPreset {
 export interface HistoryItem {
   id: string;
   url: string;
+  embedUrl?: string;
+  pageUrl?: string;
   title: string;
   type: StreamType;
   classification: SourceClassification;
+  resolutionMethod?: ResolutionMethod;
   timestamp: number;
 }
 

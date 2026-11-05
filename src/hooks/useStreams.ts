@@ -7,7 +7,25 @@ import { useCallback, useEffect, useState } from 'react';
 import { detectStreamSource } from '../services/streamDetector';
 import { storageService } from '../services/storageService';
 import { globalAudioManager } from '../services/audioManager';
-import { SavedPreset, SandboxMode, StreamSlot, StreamType } from '../types/stream';
+import {
+  EmbedCandidate,
+  ResolutionMethod,
+  ResolutionStatus,
+  SavedPreset,
+  SandboxMode,
+  StreamSlot,
+  StreamType,
+} from '../types/stream';
+
+export interface AddStreamOptions {
+  embedUrl?: string;
+  pageUrl?: string;
+  resolutionMethod?: ResolutionMethod;
+  resolutionStatus?: ResolutionStatus;
+  candidateEmbeds?: EmbedCandidate[];
+  customIframeAttributes?: any;
+  title?: string;
+}
 
 const DEFAULT_SLOT_COUNT = 4;
 
@@ -22,6 +40,8 @@ function createEmptySlots(count: number): StreamSlot[] {
     classification: 'unsupported',
     diagnosticCode: 'none',
     sandboxMode: 'no-sandbox',
+    resolutionMethod: undefined,
+    resolutionStatus: 'idle',
     isMuted: true,
     isPlaying: false,
     volume: 1,
@@ -43,15 +63,19 @@ export function useStreams(initialCount?: number) {
 
     if (saved.length > 0) {
       saved.forEach((item) => {
-        if (item.index < 6 && item.url) {
+        if (typeof item.index === 'number' && item.index >= 0 && item.index < 6 && item.url) {
+          const slotIndex = item.index;
           const detected = detectStreamSource(item.url);
-          empty[item.index] = {
-            ...empty[item.index],
-            url: detected.embedUrl || item.url,
-            originalInput: item.url,
+          empty[slotIndex] = {
+            ...empty[slotIndex],
+            url: item.embedUrl || detected.embedUrl || item.url,
+            originalInput: item.originalInput || item.url,
+            pageUrl: item.pageUrl || detected.pageUrl || item.url,
+            embedUrl: item.embedUrl || detected.embedUrl,
             title: item.title || detected.title,
-            type: detected.type,
-            classification: detected.classification,
+            type: item.type || detected.type,
+            classification: item.classification || detected.classification,
+            resolutionMethod: item.resolutionMethod || detected.resolutionMethod,
             sandboxMode: (item as any).sandboxMode || 'no-sandbox',
             videoId: detected.videoId,
             channel: detected.channel,
@@ -75,27 +99,43 @@ export function useStreams(initialCount?: number) {
   }, [slots, streamCount]);
 
   const addStream = useCallback(
-    (index: number, rawUrl: string, manualOverrideType?: StreamType, sandboxMode?: SandboxMode) => {
+    (
+      index: number,
+      rawUrl: string,
+      manualOverrideType?: StreamType,
+      sandboxMode?: SandboxMode,
+      options?: AddStreamOptions
+    ) => {
       const detected = detectStreamSource(rawUrl);
 
       setSlots((prev) => {
         const updated = [...prev];
         if (index >= 0 && index < updated.length) {
-          const finalType = manualOverrideType || detected.type;
+          const finalType = manualOverrideType || (options?.embedUrl ? 'iframe-embed' : detected.type);
           const finalSandboxMode: SandboxMode = sandboxMode || detected.sandboxMode || 'no-sandbox';
+          const finalUrl = options?.embedUrl || detected.embedUrl || rawUrl;
+          const finalTitle = options?.title || detected.title || `Canal ${index + 1}`;
+
           updated[index] = {
             ...updated[index],
-            url: detected.embedUrl || rawUrl,
+            url: finalUrl,
             originalInput: rawUrl,
-            title: detected.title || `Stream ${index + 1}`,
+            pageUrl: options?.pageUrl || detected.pageUrl || rawUrl,
+            embedUrl:
+              options?.embedUrl || detected.embedUrl || (finalType === 'iframe-embed' ? finalUrl : undefined),
+            title: finalTitle,
             type: finalType,
-            classification: detected.classification,
-            customIframeAttributes: detected.customIframeAttributes,
+            classification: options?.embedUrl ? 'iframe-embed' : detected.classification,
+            resolutionMethod:
+              options?.resolutionMethod || (options?.embedUrl ? 'manual-embed' : detected.resolutionMethod),
+            resolutionStatus: options?.resolutionStatus || 'resolved',
+            candidateEmbeds: options?.candidateEmbeds,
+            customIframeAttributes: options?.customIframeAttributes || detected.customIframeAttributes,
             manualOverrideType,
             sandboxMode: finalSandboxMode,
             videoId: detected.videoId,
             channel: detected.channel,
-            status: detected.type === 'blob-resource' ? 'error' : 'loading',
+            status: finalType === 'blob-resource' ? 'error' : 'loading',
             diagnosticCode: detected.diagnosticCode || 'none',
             errorMessage: detected.reason,
             reloadKey: updated[index].reloadKey + 1,
@@ -105,7 +145,12 @@ export function useStreams(initialCount?: number) {
       });
 
       if (detected.type !== 'unsupported') {
-        storageService.addToHistory(rawUrl, detected.title, detected.type, detected.classification);
+        storageService.addToHistory(
+          rawUrl,
+          options?.title || detected.title,
+          manualOverrideType || detected.type,
+          options?.embedUrl ? 'iframe-embed' : detected.classification
+        );
       }
     },
     []

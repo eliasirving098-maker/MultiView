@@ -3,8 +3,51 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { StreamDetectionResult, StreamType } from '../types/stream';
+import { EmbedCandidate, ResolutionMethod, StreamDetectionResult, StreamType } from '../types/stream';
 import { isIframeSnippet, parseIframeSnippet } from './iframeParser';
+
+/**
+ * Connects to the server-side metadata resolver to extract legitimate video player iframes
+ * from a full webpage without violating CORS or same-origin policies in the client browser.
+ */
+export async function resolveEmbedCandidates(pageUrl: string): Promise<{
+  success: boolean;
+  candidates: EmbedCandidate[];
+  pageTitle?: string;
+  pageUrl?: string;
+  reason?: string;
+}> {
+  try {
+    const res = await fetch('/api/resolve-embed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: pageUrl }),
+    });
+
+    if (!res.ok) {
+      return {
+        success: false,
+        candidates: [],
+        reason: `Error HTTP ${res.status}: ${res.statusText}`,
+      };
+    }
+
+    const data = await res.json();
+    return {
+      success: Boolean(data.success),
+      candidates: data.candidates || [],
+      pageTitle: data.pageTitle,
+      pageUrl: data.pageUrl || pageUrl,
+      reason: data.reason,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      candidates: [],
+      reason: `No se pudo conectar con el servicio de resolución: ${err?.message || 'Error de red'}`,
+    };
+  }
+}
 
 /**
  * Detects and classifies the media source according to web architecture standards:
@@ -27,6 +70,7 @@ export function detectStreamSource(
       originalUrl: '',
       embedUrl: '',
       title: 'URL vacía',
+      resolutionMethod: 'resolution-failed',
       isEmbeddable: false,
       diagnosticCode: 'incompatible-resource',
       reason: 'Por favor introduce una dirección URL válida o un código <iframe>.',
@@ -66,6 +110,7 @@ export function detectStreamSource(
       originalUrl: url,
       embedUrl: parsedIframe.src,
       title: embedTitle,
+      resolutionMethod: 'manual-embed',
       customIframeAttributes: parsedIframe.attributes,
       isEmbeddable: true,
       reason: 'Código HTML <iframe> reconocido y sanitizado con éxito.',
@@ -81,6 +126,7 @@ export function detectStreamSource(
       originalUrl: url,
       embedUrl: '',
       title: 'Recurso Blob Local (No Transferible)',
+      resolutionMethod: 'resolution-failed',
       isEmbeddable: false,
       diagnosticCode: 'incompatible-resource',
       reason: 'Las direcciones blob: son identificadores efímeros creados en la memoria local de la pestaña de origen.',
@@ -105,6 +151,7 @@ export function detectStreamSource(
       originalUrl: url,
       embedUrl: '',
       title: 'Enlace no válido',
+      resolutionMethod: 'resolution-failed',
       isEmbeddable: false,
       diagnosticCode: 'incompatible-resource',
       reason: 'El formato de la URL no es válido.',
@@ -148,6 +195,7 @@ export function detectStreamSource(
         originalUrl: url,
         embedUrl,
         title: `YouTube: ${videoId}`,
+        resolutionMethod: 'official-embed',
         videoId,
         isEmbeddable: true,
       };
@@ -166,6 +214,7 @@ export function detectStreamSource(
           originalUrl: url,
           embedUrl: `https://player.twitch.tv/?video=${videoId}&parent=${parentHost}&autoplay=true&muted=true`,
           title: `Twitch Video: ${videoId}`,
+          resolutionMethod: 'official-embed',
           videoId,
           isEmbeddable: true,
         };
@@ -179,6 +228,7 @@ export function detectStreamSource(
           originalUrl: url,
           embedUrl: `https://player.twitch.tv/?channel=${channel}&parent=${parentHost}&autoplay=true&muted=true`,
           title: `Twitch: ${channel}`,
+          resolutionMethod: 'official-embed',
           channel,
           isEmbeddable: true,
         };
@@ -197,6 +247,7 @@ export function detectStreamSource(
         originalUrl: url,
         embedUrl: `https://player.vimeo.com/video/${videoId}?autoplay=1&muted=1&dnt=1&playsinline=1`,
         title: `Vimeo: ${videoId}`,
+        resolutionMethod: 'official-embed',
         videoId,
         isEmbeddable: true,
       };
@@ -218,6 +269,7 @@ export function detectStreamSource(
         originalUrl: url,
         embedUrl: `https://www.dailymotion.com/embed/video/${videoId}?autoplay=1&mute=1`,
         title: `Dailymotion: ${videoId}`,
+        resolutionMethod: 'official-embed',
         videoId,
         isEmbeddable: true,
       };
@@ -232,6 +284,7 @@ export function detectStreamSource(
       originalUrl: url,
       embedUrl: url,
       title: getFileNameFromUrl(pathname, 'HLS Live Stream'),
+      resolutionMethod: 'direct-media',
       isEmbeddable: true,
     };
   }
@@ -244,6 +297,7 @@ export function detectStreamSource(
       originalUrl: url,
       embedUrl: url,
       title: getFileNameFromUrl(pathname, 'MPEG-DASH Stream'),
+      resolutionMethod: 'direct-media',
       isEmbeddable: true,
     };
   }
@@ -259,6 +313,7 @@ export function detectStreamSource(
       originalUrl: url,
       embedUrl: url,
       title: getFileNameFromUrl(pathname, 'Video HTML5'),
+      resolutionMethod: 'direct-media',
       isEmbeddable: true,
     };
   }
@@ -284,6 +339,7 @@ export function detectStreamSource(
       originalUrl: url,
       embedUrl: normalizedUrl,
       title,
+      resolutionMethod: 'official-embed',
       isEmbeddable: true,
       reason: 'Documento embed externo diseñado para inserción iframe.',
     };
@@ -309,12 +365,14 @@ export function detectStreamSource(
     classification: 'web-page',
     originalUrl: url,
     embedUrl: normalizedUrl,
+    pageUrl: normalizedUrl,
     title: pageTitle,
+    resolutionMethod: 'web-page',
     isEmbeddable: true,
     reason:
       'Página web completa. Contiene interfaz web, scripts y posibles reproductores anidados.',
     guidance:
-      'Si el servidor del sitio aplica directivas de seguridad (X-Frame-Options o CSP frame-ancestors), el navegador impedirá su inserción en marcos. En ese caso, utiliza el botón de apertura en ventana flotante para visualizarlo directamente en su contexto original.',
+      'Si la página no carga el reproductor directamente o bloquea el marco, utiliza la búsqueda automática de reproductor o introduce manualmente la URL del embed.',
   };
 }
 
@@ -454,6 +512,13 @@ export const SAMPLE_STREAMS = [
     url: 'https://vimeo.com/76979871',
     type: 'vimeo' as StreamType,
     badge: 'Vimeo HD',
+  },
+  {
+    name: 'AuraSports Player Embed (ESPN Event)',
+    category: 'Embed',
+    url: 'https://play.aurasportsplayer.cfd/event/espn-401873036',
+    type: 'iframe-embed' as StreamType,
+    badge: 'AuraSports Embed',
   },
   {
     name: 'StreamEC Embed CH-32 (streamec.st)',

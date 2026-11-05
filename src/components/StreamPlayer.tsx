@@ -36,8 +36,10 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
   onEditUrl,
   onReplaceUrl,
 }) => {
-  // Determine effective player type, respecting manual override if user selected one
-  const effectiveType: StreamType = slot.manualOverrideType || slot.type;
+  // Determine effective player type, prioritizing iframe-embed if slot.embedUrl is present
+  const effectiveType: StreamType =
+    slot.manualOverrideType ||
+    (slot.embedUrl ? 'iframe-embed' : slot.type);
 
   // Watchdog Timer (8 seconds): strictly avoid infinite loading
   useEffect(() => {
