@@ -22,17 +22,36 @@ export const Html5Player: React.FC<Html5PlayerProps> = ({
   isUnmuted,
   onStatusChange,
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Register with globalAudioManager for direct synchronous muting
+  // Register all current and dynamically added media elements (video & audio) within this slot container
   useEffect(() => {
+    const container = containerRef.current;
     const video = videoRef.current;
-    if (!video) return;
-    const unregister = globalAudioManager.registerMediaElement(slot.id, video);
-    return unregister;
-  }, [slot.id]);
+    if (!container || !video) return;
 
-  // Synchronize audio state
+    // Direct synchronous registration for the primary video element
+    const unregisterVideo = globalAudioManager.registerMediaElement(
+      slot.id,
+      video,
+      slot.volume
+    );
+
+    // Dynamic observer for any additional audio/video tracks injected at runtime
+    const unregisterContainer = globalAudioManager.observeContainerMedia(
+      slot.id,
+      container,
+      slot.volume
+    );
+
+    return () => {
+      unregisterVideo();
+      unregisterContainer();
+    };
+  }, [slot.id, slot.volume]);
+
+  // Synchronize audio state when isUnmuted or volume updates
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -88,7 +107,10 @@ export const Html5Player: React.FC<Html5PlayerProps> = ({
   }, [slot.url, slot.reloadKey]);
 
   return (
-    <div className="w-full h-full relative flex items-center justify-center bg-black overflow-hidden group">
+    <div
+      ref={containerRef}
+      className="w-full h-full relative flex items-center justify-center bg-black overflow-hidden group"
+    >
       <video
         ref={videoRef}
         playsInline

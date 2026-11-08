@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { DiagnosticCode, StreamSlot } from '../../types/stream';
-import { globalAudioManager, sendIframeAudioCommands } from '../../services/audioManager';
+import { globalAudioManager } from '../../services/audioManager';
 
 interface WebPagePlayerProps {
   slot: StreamSlot;
@@ -42,18 +42,43 @@ export const WebPagePlayer: React.FC<WebPagePlayerProps> = ({
     }
   }, [isNoSandbox, slot.reloadKey]);
 
-  // Register with globalAudioManager to mute when another stream is unmuted
+  // Audio coordination registration
   useEffect(() => {
-    const unregister = globalAudioManager.registerIframeController(slot.id, (shouldBeMuted) => {
-      sendIframeAudioCommands(iframeRef.current, shouldBeMuted);
-    });
-    return unregister;
-  }, [slot.id]);
+    let unregisterSameOriginMedia: (() => void) | null = null;
 
-  // Synchronize on isUnmuted prop changes
-  useEffect(() => {
-    sendIframeAudioCommands(iframeRef.current, !isUnmuted);
-  }, [isUnmuted]);
+    const checkSameOrigin = () => {
+      try {
+        const doc = iframeRef.current?.contentDocument;
+        if (doc) {
+          // Same-origin accessible: we can control internal media elements directly
+          unregisterSameOriginMedia = globalAudioManager.observeContainerMedia(
+            slot.id,
+            doc.body,
+            slot.volume
+          );
+          globalAudioManager.setSlotControllability(slot.id, 'controllable');
+          return true;
+        }
+      } catch {
+        // Cross-origin SOP boundary
+      }
+      return false;
+    };
+
+    const isSameOriginAccessible = checkSameOrigin();
+
+    if (!isSameOriginAccessible) {
+      // Full cross-origin websites cannot be remotely muted from the outside
+      // due to browser security restrictions. Acknowledge accurately without false claims.
+      globalAudioManager.setSlotControllability(slot.id, 'uncontrollable');
+    }
+
+    return () => {
+      if (unregisterSameOriginMedia) {
+        unregisterSameOriginMedia();
+      }
+    };
+  }, [slot.id, slot.volume, targetSrc]);
 
   return (
     <div className="w-full h-full relative bg-black overflow-hidden flex items-center justify-center group/webpage">
@@ -73,7 +98,19 @@ export const WebPagePlayer: React.FC<WebPagePlayerProps> = ({
             'unobservable-cross-origin',
             'Página web cargada. Si contiene reproductores anidados, se ejecutan en su contexto original.'
           );
-          sendIframeAudioCommands(iframeRef.current, !isUnmuted);
+
+          // Verify if iframe is same-origin
+          try {
+            const doc = iframeRef.current?.contentDocument;
+            if (doc) {
+              globalAudioManager.observeContainerMedia(slot.id, doc.body, slot.volume);
+              globalAudioManager.setSlotControllability(slot.id, 'controllable');
+            } else {
+              globalAudioManager.setSlotControllability(slot.id, 'uncontrollable');
+            }
+          } catch {
+            globalAudioManager.setSlotControllability(slot.id, 'uncontrollable');
+          }
         }}
         onError={() => {
           onStatusChange?.(

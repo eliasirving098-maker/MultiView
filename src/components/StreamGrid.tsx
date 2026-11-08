@@ -16,6 +16,7 @@ interface StreamGridProps {
   slots: StreamSlot[];
   maximizedSlotId: string | null;
   activeAudioSlotId: string | null;
+  uncontrollableSlots?: string[];
   onToggleAudio: (slotId: string) => void;
   onSetMaximizedSlot: (slotId: string | null) => void;
   onAddStream: (
@@ -36,6 +37,7 @@ interface StreamSlotTileProps {
   isFocusMode: boolean;
   maximizedSlotId: string | null;
   activeAudioSlotId: string | null;
+  uncontrollableSlots?: string[];
   isEditing: boolean;
   onSetEditingSlotIndex: (index: number | null) => void;
   onSetMaximizedSlot: (slotId: string | null) => void;
@@ -60,6 +62,7 @@ const StreamSlotTile: React.FC<StreamSlotTileProps> = ({
   isFocusMode,
   maximizedSlotId,
   activeAudioSlotId,
+  uncontrollableSlots = [],
   isEditing,
   onSetEditingSlotIndex,
   onSetMaximizedSlot,
@@ -74,6 +77,7 @@ const StreamSlotTile: React.FC<StreamSlotTileProps> = ({
   const isSlotFocused = isFocusMode && slot.id === maximizedSlotId;
   const isSecondaryInFocusMode = isFocusMode && !isSlotFocused;
   const isAudioActive = activeAudioSlotId === slot.id;
+  const isAudioControllable = !uncontrollableSlots.includes(slot.id);
   const hasStream = Boolean(slot.url && slot.type !== 'unsupported');
 
   // Auto-hide controls after 2.5 seconds of user inactivity
@@ -219,6 +223,7 @@ const StreamSlotTile: React.FC<StreamSlotTileProps> = ({
             slot={slot}
             isMaximized={isSlotFocused}
             isAudioActive={isAudioActive}
+            isAudioControllable={isAudioControllable}
             isVisible={isControlsVisible}
             onUserInteraction={resetControlsTimer}
             onUpdateSlot={(patch) => onUpdateSlot(index, patch)}
@@ -259,6 +264,7 @@ export const StreamGrid: React.FC<StreamGridProps> = ({
   slots,
   maximizedSlotId,
   activeAudioSlotId,
+  uncontrollableSlots = [],
   onToggleAudio,
   onSetMaximizedSlot,
   onAddStream,
@@ -467,6 +473,7 @@ export const StreamGrid: React.FC<StreamGridProps> = ({
             isFocusMode={isFocusMode}
             maximizedSlotId={maximizedSlotId}
             activeAudioSlotId={activeAudioSlotId}
+            uncontrollableSlots={uncontrollableSlots}
             isEditing={editingSlotIndex === index}
             onSetEditingSlotIndex={setEditingSlotIndex}
             onSetMaximizedSlot={onSetMaximizedSlot}

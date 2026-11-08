@@ -6,7 +6,10 @@
 import React, { useEffect, useRef } from 'react';
 import { DiagnosticCode, StreamSlot } from '../../types/stream';
 import { DEFAULT_EMBED_ALLOW } from '../../services/iframeParser';
-import { globalAudioManager, sendIframeAudioCommands } from '../../services/audioManager';
+import {
+  globalAudioManager,
+  sendDailymotionAudioCommand,
+} from '../../services/audioManager';
 
 interface EmbedPlayerProps {
   slot: StreamSlot;
@@ -33,8 +36,7 @@ export const EmbedPlayer: React.FC<EmbedPlayerProps> = ({
 
   // External player compatibility mode:
   // - 'standard': Enforces controlled sandbox
-  // - 'no-sandbox' (default): Absolutely NO sandbox attribute is added to the iframe tag, allowing
-  //   external players (AuraSports, Streamec, Clappr, JWPlayer) to load their subframes, workers, and decoders.
+  // - 'no-sandbox' (default): Absolutely NO sandbox attribute is added to the iframe tag
   const isNoSandbox = slot.sandboxMode !== 'standard';
   const sandboxAttribute = isNoSandbox
     ? undefined
@@ -49,18 +51,70 @@ export const EmbedPlayer: React.FC<EmbedPlayerProps> = ({
     }
   }, [isNoSandbox, slot.reloadKey]);
 
-  // Register with globalAudioManager to mute when another stream is unmuted
-  useEffect(() => {
-    const unregister = globalAudioManager.registerIframeController(slot.id, (shouldBeMuted) => {
-      sendIframeAudioCommands(iframeRef.current, shouldBeMuted);
-    });
-    return unregister;
-  }, [slot.id]);
+  // Determine if this is a known player with a documented control API
+  const isDailymotion =
+    slot.type === 'dailymotion' ||
+    /dailymotion\.com|dai\.ly/i.test(targetSrc);
 
-  // Synchronize on isUnmuted prop changes
+  // Audio coordination registration
   useEffect(() => {
-    sendIframeAudioCommands(iframeRef.current, !isUnmuted);
-  }, [isUnmuted]);
+    const iframe = iframeRef.current;
+    let unregisterSameOriginMedia: (() => void) | null = null;
+
+    if (isDailymotion) {
+      // Documented API: Dailymotion postMessage
+      const unregister = globalAudioManager.registerIframeController(
+        slot.id,
+        (shouldBeMuted) => {
+          sendDailymotionAudioCommand(iframeRef.current, shouldBeMuted);
+        },
+        true // controllable
+      );
+      return unregister;
+    }
+
+    // For generic iframes, check same-origin accessibility on mount/load
+    const checkSameOrigin = () => {
+      try {
+        const doc = iframe?.contentDocument;
+        if (doc) {
+          // Same-origin accessible: we can control all media elements directly
+          unregisterSameOriginMedia = globalAudioManager.observeContainerMedia(
+            slot.id,
+            doc.body,
+            slot.volume
+          );
+          globalAudioManager.setSlotControllability(slot.id, 'controllable');
+          return true;
+        }
+      } catch {
+        // Cross-origin security boundary reached
+      }
+      return false;
+    };
+
+    const isSameOriginAccessible = checkSameOrigin();
+
+    if (!isSameOriginAccessible) {
+      // Cross-origin with NO documented control API:
+      // Acknowledge technical impossibility of remote muting due to browser SOP.
+      // Mark accurately as uncontrollable so UI informs user honestly.
+      globalAudioManager.setSlotControllability(slot.id, 'uncontrollable');
+    }
+
+    return () => {
+      if (unregisterSameOriginMedia) {
+        unregisterSameOriginMedia();
+      }
+    };
+  }, [slot.id, slot.volume, isDailymotion, targetSrc]);
+
+  // Synchronize on isUnmuted prop changes for documented API players
+  useEffect(() => {
+    if (isDailymotion) {
+      sendDailymotionAudioCommand(iframeRef.current, !isUnmuted);
+    }
+  }, [isUnmuted, isDailymotion]);
 
   return (
     <div className="w-full h-full relative bg-black overflow-hidden flex items-center justify-center group/embed">
@@ -81,15 +135,28 @@ export const EmbedPlayer: React.FC<EmbedPlayerProps> = ({
           overflow: 'hidden',
         }}
         onLoad={() => {
-          // Cross-origin iframes cannot be introspected due to browser Same-Origin Policy.
-          // Explicitly register external-loaded status with unobservable-cross-origin.
           onStatusChange?.(
             'external-loaded',
             'unobservable-cross-origin',
             'Reproductor embed cargado correctamente en su marco.'
           );
-          // Send initial audio state to player
-          sendIframeAudioCommands(iframeRef.current, !isUnmuted);
+
+          // Verify if iframe is same-origin or Dailymotion
+          if (isDailymotion) {
+            sendDailymotionAudioCommand(iframeRef.current, !isUnmuted);
+          } else {
+            try {
+              const doc = iframeRef.current?.contentDocument;
+              if (doc) {
+                globalAudioManager.observeContainerMedia(slot.id, doc.body, slot.volume);
+                globalAudioManager.setSlotControllability(slot.id, 'controllable');
+              } else {
+                globalAudioManager.setSlotControllability(slot.id, 'uncontrollable');
+              }
+            } catch {
+              globalAudioManager.setSlotControllability(slot.id, 'uncontrollable');
+            }
+          }
         }}
         onError={() => {
           onStatusChange?.(

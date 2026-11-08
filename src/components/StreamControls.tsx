@@ -25,6 +25,7 @@ interface StreamControlsProps {
   slot: StreamSlot;
   isMaximized: boolean;
   isAudioActive: boolean;
+  isAudioControllable?: boolean;
   isVisible?: boolean;
   onUserInteraction?: () => void;
   onToggleAudio: () => void;
@@ -41,6 +42,7 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
   slot,
   isMaximized,
   isAudioActive,
+  isAudioControllable = true,
   isVisible = true,
   onUserInteraction,
   onToggleAudio,
@@ -113,7 +115,7 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
 
         {/* Center Lateral: Barra lateral vertical de herramientas y controles */}
         <div className="pointer-events-auto my-auto flex flex-col items-center gap-1 bg-black/85 backdrop-blur-md p-1.5 rounded-2xl border border-white/10 shadow-2xl">
-          {/* 1. Botón Prioritario de Sonido (Mute / Unmute con indicador activo) */}
+          {/* 1. Botón Prioritario de Sonido (Mute / Unmute con estados de control real) */}
           <div className="relative group/tool">
             <button
               type="button"
@@ -125,22 +127,35 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
               title={
                 isAudioActive
                   ? 'Sonido activo en esta transmisión. Clic para silenciar.'
+                  : isAudioControllable === false
+                  ? 'Silencio no garantizado: Este reproductor externo (cross-origin) no admite control remoto de audio. Siléncielo en los controles internos del reproductor.'
                   : 'Activar sonido (silenciará automáticamente las demás transmisiones)'
               }
               className={`p-2 rounded-xl transition-all border cursor-pointer select-none active:scale-95 flex items-center justify-center relative ${
                 isAudioActive
                   ? 'bg-emerald-500 text-black border-emerald-400 font-bold shadow-lg shadow-emerald-950/60 ring-2 ring-emerald-400/50 scale-105'
+                  : isAudioControllable === false
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
                   : 'bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white border-white/10'
               }`}
             >
               {isAudioActive ? (
                 <Volume2 className="w-4 h-4 animate-bounce" />
+              ) : isAudioControllable === false ? (
+                <div className="relative flex items-center justify-center">
+                  <VolumeX className="w-4 h-4 text-amber-400" />
+                  <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-amber-400" />
+                </div>
               ) : (
                 <VolumeX className="w-4 h-4 text-slate-400" />
               )}
             </button>
             <span className="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/95 text-white text-[10px] font-medium font-mono rounded-md whitespace-nowrap opacity-0 group-hover/tool:opacity-100 pointer-events-none transition-opacity shadow-lg border border-white/10 z-30">
-              {isAudioActive ? 'Sonido: ON (Clic para silenciar)' : 'Sonido: Silenciado (Clic para activar)'}
+              {isAudioActive
+                ? 'Sonido: ON (Clic para silenciar)'
+                : isAudioControllable === false
+                ? 'Silencio no garantizado (Reproductor cross-origin)'
+                : 'Silenciado confirmado (Clic para activar)'}
             </span>
           </div>
 

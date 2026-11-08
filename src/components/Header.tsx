@@ -25,6 +25,7 @@ interface HeaderProps {
   streamCount: number;
   activeSlotsCount: number;
   activeAudioSlotId: string | null;
+  uncontrollableCount?: number;
   onSelectStreamCount: (count: number) => void;
   onMuteAllAudio: () => void;
   onOpenPresets: () => void;
@@ -38,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   streamCount,
   activeSlotsCount,
   activeAudioSlotId,
+  uncontrollableCount = 0,
   onSelectStreamCount,
   onMuteAllAudio,
   onOpenPresets,
@@ -146,7 +148,9 @@ export const Header: React.FC<HeaderProps> = ({
             title={
               activeAudioSlotId
                 ? `Sonido activo en ${activeAudioSlotId.toUpperCase()}. Clic para silenciar todo.`
-                : 'Todos los streams están silenciados.'
+                : uncontrollableCount > 0
+                ? `Silencio aplicado a los reproductores controlables (${uncontrollableCount} stream(s) externo(s) no admiten silencio remoto).`
+                : 'Todos los streams controlables están silenciados.'
             }
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-mono border transition ${
               activeAudioSlotId
@@ -165,6 +169,12 @@ export const Header: React.FC<HeaderProps> = ({
               <>
                 <VolumeX className="w-3.5 h-3.5 text-slate-500" />
                 <span className="text-[11px] hidden md:inline">TODO MUTE</span>
+                {uncontrollableCount > 0 && (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                    title={`${uncontrollableCount} stream(s) externo(s) no admiten control de audio remoto`}
+                  />
+                )}
               </>
             )}
           </button>

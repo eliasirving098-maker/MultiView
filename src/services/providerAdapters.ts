@@ -47,7 +47,7 @@ export const PROVIDER_CONFIGS: Record<StreamType, ProviderAdapterConfig> = {
     allow: 'autoplay; fullscreen; webkitallowfullscreen; mozallowfullscreen',
     referrerPolicy: 'no-referrer-when-downgrade',
     allowFullScreen: true,
-    hasControlApi: false,
+    hasControlApi: true,
     isObservable: false,
   },
   hls: {

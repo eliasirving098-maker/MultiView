@@ -40,7 +40,12 @@ export const Multiview: React.FC<MultiviewProps> = ({
     loadPreset,
   } = useStreams(initialCount);
 
-  const { activeSlotId, toggleSlotAudio, muteAll } = useAudioManager();
+  const {
+    activeSlotId,
+    toggleSlotAudio,
+    muteAll,
+    uncontrollableSlots,
+  } = useAudioManager();
 
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isPresetsOpen, setIsPresetsOpen] = useState<boolean>(false);
@@ -119,6 +124,7 @@ export const Multiview: React.FC<MultiviewProps> = ({
         streamCount={streamCount}
         activeSlotsCount={activeStreamsCount}
         activeAudioSlotId={activeSlotId}
+        uncontrollableCount={uncontrollableSlots.length}
         onSelectStreamCount={setStreamCount}
         onMuteAllAudio={muteAll}
         onOpenPresets={() => setIsPresetsOpen(true)}
@@ -135,6 +141,7 @@ export const Multiview: React.FC<MultiviewProps> = ({
           slots={slots}
           maximizedSlotId={maximizedSlotId}
           activeAudioSlotId={activeSlotId}
+          uncontrollableSlots={uncontrollableSlots}
           onToggleAudio={toggleSlotAudio}
           onSetMaximizedSlot={setMaximizedSlotId}
           onAddStream={addStream}

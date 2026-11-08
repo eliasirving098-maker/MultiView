@@ -4,16 +4,29 @@
  */
 
 import { useEffect, useState } from 'react';
-import { globalAudioManager } from '../services/audioManager';
+import {
+  globalAudioManager,
+  AudioControllability,
+  AudioStateSnapshot,
+} from '../services/audioManager';
 
 export function useAudioManager() {
   const [activeSlotId, setActiveSlotId] = useState<string | null>(() =>
     globalAudioManager.getActiveAudioSlotId()
   );
 
+  const [controllability, setControllability] = useState<Record<string, AudioControllability>>(() =>
+    globalAudioManager.getControllabilityMap()
+  );
+
   useEffect(() => {
-    const unsubscribe = globalAudioManager.subscribe((currentActiveId) => {
+    const unsubscribe = globalAudioManager.subscribe((currentActiveId, snapshot) => {
       setActiveSlotId(currentActiveId);
+      if (snapshot?.controllability) {
+        setControllability({ ...snapshot.controllability });
+      } else {
+        setControllability(globalAudioManager.getControllabilityMap());
+      }
     });
     return unsubscribe;
   }, []);
@@ -26,6 +39,14 @@ export function useAudioManager() {
     globalAudioManager.setSlotAudio(slotId);
   };
 
+  const muteSlot = (slotId: string) => {
+    globalAudioManager.muteSlot(slotId);
+  };
+
+  const unmuteSlot = (slotId: string) => {
+    globalAudioManager.unmuteSlot(slotId);
+  };
+
   const muteAll = () => {
     globalAudioManager.muteAll();
   };
@@ -34,11 +55,24 @@ export function useAudioManager() {
     return activeSlotId === slotId;
   };
 
+  const isSlotControllable = (slotId: string) => {
+    return (controllability[slotId] ?? 'controllable') !== 'uncontrollable';
+  };
+
+  const uncontrollableSlots = Object.entries(controllability)
+    .filter(([_, status]) => status === 'uncontrollable')
+    .map(([id]) => id);
+
   return {
     activeSlotId,
+    controllability,
     toggleSlotAudio,
     setSlotAudio,
+    muteSlot,
+    unmuteSlot,
     muteAll,
     isSlotUnmuted,
+    isSlotControllable,
+    uncontrollableSlots,
   };
 }

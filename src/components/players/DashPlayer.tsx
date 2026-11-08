@@ -23,15 +23,32 @@ export const DashPlayer: React.FC<DashPlayerProps> = ({
   isUnmuted,
   onStatusChange,
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Register with globalAudioManager for direct synchronous muting
+  // Register primary video and observe all media elements within this slot container
   useEffect(() => {
+    const container = containerRef.current;
     const video = videoRef.current;
-    if (!video) return;
-    const unregister = globalAudioManager.registerMediaElement(slot.id, video);
-    return unregister;
-  }, [slot.id]);
+    if (!container || !video) return;
+
+    const unregisterVideo = globalAudioManager.registerMediaElement(
+      slot.id,
+      video,
+      slot.volume
+    );
+
+    const unregisterContainer = globalAudioManager.observeContainerMedia(
+      slot.id,
+      container,
+      slot.volume
+    );
+
+    return () => {
+      unregisterVideo();
+      unregisterContainer();
+    };
+  }, [slot.id, slot.volume]);
 
   // Synchronize audio state
   useEffect(() => {
@@ -88,7 +105,10 @@ export const DashPlayer: React.FC<DashPlayerProps> = ({
   }, [slot.url, slot.reloadKey]);
 
   return (
-    <div className="w-full h-full relative flex items-center justify-center bg-black overflow-hidden group">
+    <div
+      ref={containerRef}
+      className="w-full h-full relative flex items-center justify-center bg-black overflow-hidden group"
+    >
       <video
         ref={videoRef}
         playsInline
