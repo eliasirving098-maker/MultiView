@@ -85,17 +85,18 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
 
   return (
     <>
-      {/* Top Bar Overlay */}
+      {/* Lateral Controls Sidebar (Barra lateral en el margen derecho del recuadro) */}
       <div
         onMouseMove={onUserInteraction}
         onTouchStart={onUserInteraction}
-        className={`absolute top-0 inset-x-0 p-2.5 flex items-center justify-between bg-gradient-to-b from-black/85 via-black/45 to-transparent transition-all duration-300 ease-in-out z-20 ${
+        className={`absolute top-2 right-2 bottom-2 z-20 flex flex-col justify-between items-end pointer-events-none transition-all duration-300 ease-in-out ${
           isVisible
-            ? 'opacity-100 translate-y-0 pointer-events-auto'
-            : 'opacity-0 -translate-y-2 pointer-events-none'
+            ? 'opacity-100 translate-x-0'
+            : 'opacity-0 translate-x-3'
         }`}
       >
-        <div className="pointer-events-auto flex items-center gap-2 min-w-0 pr-2">
+        {/* Top Lateral: Estado del canal y título compacto */}
+        <div className="pointer-events-auto flex items-center gap-1.5 bg-black/85 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 shadow-xl max-w-[200px] sm:max-w-[280px]">
           <StreamStatus
             type={slot.type}
             status={slot.status}
@@ -103,180 +104,205 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
             channelIndex={slot.index}
           />
           <span
-            className="text-[11px] font-medium text-slate-200 truncate max-w-[140px] sm:max-w-[220px] drop-shadow-md hidden sm:inline"
+            className="text-[11px] font-medium text-slate-200 truncate drop-shadow-md hidden sm:inline"
             title={slot.title || slot.url}
           >
             {slot.title || slot.url}
           </span>
         </div>
 
-        {/* Action icons */}
-        <div className="pointer-events-auto flex items-center gap-1 bg-black/60 backdrop-blur-md p-1 rounded-xl border border-white/10 shadow-lg">
-          {/* External Player Compatibility / Sandbox Mode Toggle */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onUserInteraction?.();
-              setIsSandboxModalOpen(true);
-            }}
-            title={`Compatibilidad del reproductor: ${
-              slot.sandboxMode === 'standard'
-                ? 'Protección estándar (Con sandbox restrictivo)'
-                : 'Compatibilidad sin sandbox (Activo)'
-            }`}
-            className={`p-1.5 rounded-lg transition ${
-              slot.sandboxMode === 'standard'
-                ? 'text-amber-400 hover:bg-amber-500/10'
-                : 'text-emerald-400 hover:bg-emerald-500/10'
-            }`}
-          >
-            {slot.sandboxMode === 'standard' ? (
-              <Shield className="w-3.5 h-3.5" />
-            ) : (
-              <ShieldCheck className="w-3.5 h-3.5" />
-            )}
-          </button>
+        {/* Center Lateral: Barra lateral vertical de herramientas y controles */}
+        <div className="pointer-events-auto my-auto flex flex-col items-center gap-1 bg-black/85 backdrop-blur-md p-1.5 rounded-2xl border border-white/10 shadow-2xl">
+          {/* 1. Botón Prioritario de Sonido (Mute / Unmute con indicador activo) */}
+          <div className="relative group/tool">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onUserInteraction?.();
+                onToggleAudio();
+              }}
+              title={
+                isAudioActive
+                  ? 'Sonido activo en esta transmisión. Clic para silenciar.'
+                  : 'Activar sonido (silenciará automáticamente las demás transmisiones)'
+              }
+              className={`p-2 rounded-xl transition-all border cursor-pointer select-none active:scale-95 flex items-center justify-center relative ${
+                isAudioActive
+                  ? 'bg-emerald-500 text-black border-emerald-400 font-bold shadow-lg shadow-emerald-950/60 ring-2 ring-emerald-400/50 scale-105'
+                  : 'bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white border-white/10'
+              }`}
+            >
+              {isAudioActive ? (
+                <Volume2 className="w-4 h-4 animate-bounce" />
+              ) : (
+                <VolumeX className="w-4 h-4 text-slate-400" />
+              )}
+            </button>
+            <span className="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/95 text-white text-[10px] font-medium font-mono rounded-md whitespace-nowrap opacity-0 group-hover/tool:opacity-100 pointer-events-none transition-opacity shadow-lg border border-white/10 z-30">
+              {isAudioActive ? 'Sonido: ON (Clic para silenciar)' : 'Sonido: Silenciado (Clic para activar)'}
+            </span>
+          </div>
 
-          {/* Popout / Floating window */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onUserInteraction?.();
-              handleOpenPopup();
-            }}
-            title="Abrir en ventana flotante independiente (sin restricciones de marco)"
-            className="p-1.5 rounded-lg text-slate-300 hover:text-emerald-400 hover:bg-white/10 transition"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </button>
+          <div className="w-4 h-[1px] bg-white/10 my-0.5" />
 
-          {/* Edit / Change URL */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onUserInteraction?.();
-              onEdit();
-            }}
-            title="Cambiar enlace de la transmisión"
-            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition"
-          >
-            <Edit2 className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Reload Stream */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onUserInteraction?.();
-              onReload();
-            }}
-            title="Recargar transmisión (Atajo: R)"
-            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Focus / Hero Stage Toggle */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onUserInteraction?.();
-              onToggleMaximize();
-            }}
-            title={
-              isMaximized
-                ? 'Restaurar cuadrícula equilibrada (ESC)'
-                : 'Convertir en transmisión principal (Enfoque tipo Meet / Zoom)'
-            }
-            className={`p-1.5 rounded-lg transition ${
-              isMaximized
-                ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/40'
-                : 'text-slate-300 hover:text-white hover:bg-white/10'
-            }`}
-          >
-            {isMaximized ? (
-              <Minimize2 className="w-3.5 h-3.5 text-emerald-400" />
-            ) : (
-              <Maximize2 className="w-3.5 h-3.5" />
-            )}
-          </button>
-
-          {/* Close Stream */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onUserInteraction?.();
-              onClose();
-            }}
-            title="Cerrar y vaciar este recuadro"
-            className="p-1.5 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-500/10 transition"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Bottom Bar Overlay with Audio Priority in Lower Right */}
-      <div
-        onMouseMove={onUserInteraction}
-        onTouchStart={onUserInteraction}
-        className={`absolute bottom-0 inset-x-0 p-2.5 flex items-center justify-between bg-gradient-to-t from-black/85 via-black/40 to-transparent transition-all duration-300 ease-in-out z-20 ${
-          isVisible
-            ? 'opacity-100 translate-y-0 pointer-events-auto'
-            : 'opacity-0 translate-y-2 pointer-events-none'
-        }`}
-      >
-        <div className="pointer-events-auto flex items-center gap-1.5">
-          {/* Aspect ratio toggle (contain / cover) */}
-          {onToggleAspectRatio && (
+          {/* 2. Enfoque / Transmisión Principal (Meet / Zoom stage) */}
+          <div className="relative group/tool">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onUserInteraction?.();
-                onToggleAspectRatio();
+                onToggleMaximize();
               }}
-              title={`Ajuste de pantalla actual: ${slot.aspectRatio}`}
-              className="px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[10px] font-mono text-slate-300 hover:text-white border border-white/10 hover:bg-white/10 transition flex items-center gap-1 cursor-pointer"
+              title={
+                isMaximized
+                  ? 'Restaurar cuadrícula equilibrada (ESC)'
+                  : 'Convertir en transmisión principal (Enfoque tipo Meet / Zoom)'
+              }
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                isMaximized
+                  ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/40'
+                  : 'text-slate-300 hover:text-white hover:bg-white/10'
+              }`}
             >
-              <Scaling className="w-3 h-3" />
-              <span className="uppercase">{slot.aspectRatio}</span>
+              {isMaximized ? (
+                <Minimize2 className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5" />
+              )}
             </button>
+            <span className="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/95 text-white text-[10px] font-medium font-mono rounded-md whitespace-nowrap opacity-0 group-hover/tool:opacity-100 pointer-events-none transition-opacity shadow-lg border border-white/10 z-30">
+              {isMaximized ? 'Restaurar cuadrícula' : 'Transmisión principal'}
+            </span>
+          </div>
+
+          {/* 3. Recargar Transmisión */}
+          <div className="relative group/tool">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUserInteraction?.();
+                onReload();
+              }}
+              title="Recargar transmisión (Atajo: R)"
+              className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+            <span className="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/95 text-white text-[10px] font-medium font-mono rounded-md whitespace-nowrap opacity-0 group-hover/tool:opacity-100 pointer-events-none transition-opacity shadow-lg border border-white/10 z-30">
+              Recargar transmisión
+            </span>
+          </div>
+
+          {/* 4. Ajuste de Pantalla (contain / cover) */}
+          {onToggleAspectRatio && (
+            <div className="relative group/tool">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUserInteraction?.();
+                  onToggleAspectRatio();
+                }}
+                title={`Ajuste de pantalla actual: ${slot.aspectRatio.toUpperCase()}`}
+                className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer flex items-center justify-center"
+              >
+                <Scaling className="w-3.5 h-3.5" />
+              </button>
+              <span className="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/95 text-white text-[10px] font-medium font-mono rounded-md whitespace-nowrap opacity-0 group-hover/tool:opacity-100 pointer-events-none transition-opacity shadow-lg border border-white/10 z-30">
+                Ajuste: {slot.aspectRatio.toUpperCase()}
+              </span>
+            </div>
           )}
+
+          {/* 5. Editar / Cambiar URL */}
+          <div className="relative group/tool">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUserInteraction?.();
+                onEdit();
+              }}
+              title="Cambiar enlace de la transmisión"
+              className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+            <span className="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/95 text-white text-[10px] font-medium font-mono rounded-md whitespace-nowrap opacity-0 group-hover/tool:opacity-100 pointer-events-none transition-opacity shadow-lg border border-white/10 z-30">
+              Cambiar enlace
+            </span>
+          </div>
+
+          {/* 6. Compatibilidad Sandbox del Reproductor */}
+          <div className="relative group/tool">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUserInteraction?.();
+                setIsSandboxModalOpen(true);
+              }}
+              title={`Compatibilidad del reproductor: ${
+                slot.sandboxMode === 'standard'
+                  ? 'Protección estándar (Con sandbox)'
+                  : 'Compatibilidad sin sandbox (Activo)'
+              }`}
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                slot.sandboxMode === 'standard'
+                  ? 'text-amber-400 hover:bg-amber-500/10'
+                  : 'text-emerald-400 hover:bg-emerald-500/10'
+              }`}
+            >
+              {slot.sandboxMode === 'standard' ? (
+                <Shield className="w-3.5 h-3.5" />
+              ) : (
+                <ShieldCheck className="w-3.5 h-3.5" />
+              )}
+            </button>
+            <span className="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/95 text-white text-[10px] font-medium font-mono rounded-md whitespace-nowrap opacity-0 group-hover/tool:opacity-100 pointer-events-none transition-opacity shadow-lg border border-white/10 z-30">
+              {slot.sandboxMode === 'standard' ? 'Sandbox: Estándar' : 'Sandbox: Desactivado'}
+            </span>
+          </div>
+
+          {/* 7. Ventana Flotante / Popout */}
+          <div className="relative group/tool">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUserInteraction?.();
+                handleOpenPopup();
+              }}
+              title="Abrir en ventana flotante independiente"
+              className="p-1.5 rounded-lg text-slate-300 hover:text-emerald-400 hover:bg-white/10 transition cursor-pointer"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+            <span className="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/95 text-white text-[10px] font-medium font-mono rounded-md whitespace-nowrap opacity-0 group-hover/tool:opacity-100 pointer-events-none transition-opacity shadow-lg border border-white/10 z-30">
+              Ventana flotante
+            </span>
+          </div>
+
+          <div className="w-4 h-[1px] bg-white/10 my-0.5" />
+
+          {/* 8. Cerrar Transmisión */}
+          <div className="relative group/tool">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUserInteraction?.();
+                onClose();
+              }}
+              title="Cerrar y vaciar este recuadro"
+              className="p-1.5 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+            <span className="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/95 text-white text-[10px] font-medium font-mono rounded-md whitespace-nowrap opacity-0 group-hover/tool:opacity-100 pointer-events-none transition-opacity shadow-lg border border-white/10 z-30">
+              Cerrar stream
+            </span>
+          </div>
         </div>
 
-        {/* Global Priority Audio Button (Corner Lower-Right) */}
-        <div className="pointer-events-auto">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onUserInteraction?.();
-              onToggleAudio();
-            }}
-            title={
-              isAudioActive
-                ? 'Sonido activo en esta transmisión. Haz clic para silenciar.'
-                : 'Activar sonido (silenciará automáticamente las demás transmisiones)'
-            }
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium text-xs shadow-lg transition-all border cursor-pointer select-none active:scale-95 ${
-              isAudioActive
-                ? 'bg-emerald-500 text-black border-emerald-400 font-bold shadow-emerald-950/60 ring-2 ring-emerald-400/50 scale-105'
-                : 'bg-black/70 hover:bg-black/90 text-slate-300 hover:text-white border-white/15'
-            }`}
-          >
-            {isAudioActive ? (
-              <>
-                <Volume2 className="w-4 h-4 animate-bounce" />
-                <span>SONIDO ON</span>
-              </>
-            ) : (
-              <>
-                <VolumeX className="w-4 h-4 text-slate-400" />
-                <span className="text-[11px] text-slate-300">SILENCIADO</span>
-              </>
-            )}
-          </button>
-        </div>
+        {/* Bottom Lateral: Espaciador inferior para centrado óptico */}
+        <div className="h-1 pointer-events-none" />
       </div>
 
       {/* External Player Compatibility / Sandbox Mode Modal */}

@@ -141,7 +141,7 @@ const StreamSlotTile: React.FC<StreamSlotTileProps> = ({
       {/* Secondary stream hover badge in Focus Mode - auto hides when inactive */}
       {isSecondaryInFocusMode && hasStream && !isEditing && (
         <div
-          className={`absolute top-2 right-2 z-25 transition-all duration-300 pointer-events-none ${
+          className={`absolute top-2 left-2 z-25 transition-all duration-300 pointer-events-none ${
             isControlsVisible
               ? 'opacity-100 translate-y-0'
               : 'opacity-0 -translate-y-1'
