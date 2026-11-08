@@ -59,11 +59,15 @@ export interface EmbedCandidate {
   title: string;
   sourceHostname: string;
   type: StreamType;
+  depth?: number;
   width?: string;
   height?: string;
   allow?: string;
   confidence: 'high' | 'medium' | 'low';
   note?: string;
+  isDirectMedia?: boolean;
+  isVerifiedAccessible?: boolean;
+  audioControllable?: boolean;
 }
 
 export interface CustomIframeAttributes {
@@ -88,6 +92,7 @@ export interface StreamSlot {
   resolutionMethod?: ResolutionMethod;
   resolutionStatus?: ResolutionStatus;
   candidateEmbeds?: EmbedCandidate[];
+  diagnosticSteps?: string[];
   customIframeAttributes?: CustomIframeAttributes;
   manualOverrideType?: StreamType;
   sandboxMode?: SandboxMode;
@@ -113,6 +118,7 @@ export interface StreamDetectionResult {
   resolutionMethod?: ResolutionMethod;
   resolutionStatus?: ResolutionStatus;
   candidateEmbeds?: EmbedCandidate[];
+  diagnosticSteps?: string[];
   customIframeAttributes?: CustomIframeAttributes;
   sandboxMode?: SandboxMode;
   videoId?: string;

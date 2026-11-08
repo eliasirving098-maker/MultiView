@@ -23,6 +23,9 @@ import {
   ArrowRight,
   Info,
   Tv,
+  ChevronDown,
+  ChevronUp,
+  Terminal,
 } from 'lucide-react';
 import {
   detectStreamSource,
@@ -73,6 +76,8 @@ export const StreamInput: React.FC<StreamInputProps> = ({
   const [autoUrl, setAutoUrl] = useState(initialUrl);
   const [isResolving, setIsResolving] = useState(false);
   const [resolvedCandidates, setResolvedCandidates] = useState<EmbedCandidate[]>([]);
+  const [diagnosticSteps, setDiagnosticSteps] = useState<string[]>([]);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [resolveAttempted, setResolveAttempted] = useState(false);
 
@@ -92,6 +97,8 @@ export const StreamInput: React.FC<StreamInputProps> = ({
   // Real-time analysis for Automatic URL
   const autoDetection = autoUrl.trim() ? detectStreamSource(autoUrl.trim()) : null;
   const isAutoWebPage = autoDetection?.classification === 'web-page';
+  const isAutoEmbed = autoDetection?.classification === 'iframe-embed';
+  const canResolve = Boolean(autoUrl.trim() && (isAutoWebPage || isAutoEmbed));
 
   // Real-time analysis for Manual Embed Input
   const manualHasIframe = isIframeSnippet(manualEmbedInput);
@@ -100,13 +107,13 @@ export const StreamInput: React.FC<StreamInputProps> = ({
     ? manualParsedIframe?.src || ''
     : manualEmbedInput.trim();
 
-  // Trigger Automatic Resolver
+  // Trigger Multi-Level Automatic Resolver
   const handleAutoResolve = async () => {
     const trimmed = autoUrl.trim();
     if (!trimmed) return;
 
-    // If it is already a direct embed or direct media, no need to resolve HTML
-    if (autoDetection && !isAutoWebPage) {
+    // Direct media manifests (.m3u8, .mp4, official YouTube/Twitch) can be confirmed directly
+    if (autoDetection && !isAutoWebPage && !isAutoEmbed) {
       handleConfirmDirectAuto();
       return;
     }
@@ -115,20 +122,24 @@ export const StreamInput: React.FC<StreamInputProps> = ({
     setResolveError(null);
     setResolveAttempted(true);
     setResolvedCandidates([]);
+    setDiagnosticSteps([]);
+    setIsDiagnosticsOpen(true);
 
     try {
       const res = await resolveEmbedCandidates(trimmed);
+      setDiagnosticSteps(res.diagnosticSteps || []);
+
       if (res.success && res.candidates.length > 0) {
         setResolvedCandidates(res.candidates);
       } else {
         setResolveError(
           res.reason ||
-            'No pudimos localizar automáticamente un reproductor compatible en esta página. Si tienes el enlace directo del reproductor o su código <iframe>, puedes introducirlo en el modo manual.'
+            'No se identificaron reproductores ni fuentes multimedia en la estructura de esta página. Puedes introducir la URL directa o código <iframe> en el modo manual.'
         );
       }
     } catch (err: any) {
       setResolveError(
-        'Error de conexión al analizar la página. Si tienes el enlace directo del reproductor o su código <iframe>, puedes introducirlo en el modo manual.'
+        'Error de conexión al analizar la página. Si dispones del enlace directo del reproductor o su código <iframe>, puedes introducirlo en el modo manual.'
       );
     } finally {
       setIsResolving(false);
@@ -137,12 +148,17 @@ export const StreamInput: React.FC<StreamInputProps> = ({
 
   // Confirm loading a specific resolved candidate
   const handleSelectCandidate = (candidate: EmbedCandidate) => {
-    const override = manualType === 'auto' ? candidate.type : manualType;
-    onConfirm(autoUrl.trim(), override, sandboxMode, {
+    const isDirect = Boolean(candidate.isDirectMedia);
+    const candidateType = candidate.type || (isDirect ? 'hls' : 'iframe-embed');
+    const finalType = manualType === 'auto' ? candidateType : manualType;
+
+    onConfirm(autoUrl.trim(), finalType, sandboxMode, {
       embedUrl: candidate.url,
       pageUrl: autoUrl.trim(),
       resolutionMethod: 'auto-resolved',
+      isDirectMedia: isDirect,
       candidateEmbeds: resolvedCandidates,
+      diagnosticSteps,
       title: candidate.title,
     });
   };
@@ -321,14 +337,14 @@ export const StreamInput: React.FC<StreamInputProps> = ({
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        if (isAutoWebPage) {
+                        if (canResolve) {
                           handleAutoResolve();
                         } else {
                           handleConfirmDirectAuto();
                         }
                       }
                     }}
-                    placeholder="https://tvsportslive.fr/... o YouTube, .m3u8, direct video"
+                    placeholder="https://streamec.st/embed/ch31.php o tvsportslive.fr, .m3u8, direct video"
                     className="w-full rounded-xl bg-[#101114] border border-white/10 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500/80 font-mono transition"
                     autoFocus
                   />
@@ -338,6 +354,7 @@ export const StreamInput: React.FC<StreamInputProps> = ({
                       onClick={() => {
                         setAutoUrl('');
                         setResolvedCandidates([]);
+                        setDiagnosticSteps([]);
                         setResolveError(null);
                         setResolveAttempted(false);
                       }}
@@ -380,7 +397,7 @@ export const StreamInput: React.FC<StreamInputProps> = ({
               )}
 
               {/* Auto Resolve Action Button */}
-              {isAutoWebPage && (
+              {canResolve && (
                 <div className="flex flex-col gap-2">
                   <button
                     type="button"
@@ -391,15 +408,29 @@ export const StreamInput: React.FC<StreamInputProps> = ({
                     {isResolving ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Analizando página y buscando reproductores embed...</span>
+                        <span>Inspeccionando capas y buscando reproductor interno...</span>
                       </>
                     ) : (
                       <>
                         <Sparkles className="w-4 h-4" />
-                        <span>Localizar Reproductor Automáticamente</span>
+                        <span>
+                          {isAutoEmbed
+                            ? 'Inspeccionar Capas y Resolver Reproductor Interno'
+                            : 'Localizar Reproductor Automáticamente'}
+                        </span>
                       </>
                     )}
                   </button>
+                  {isAutoEmbed && !resolvedCandidates.length && (
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmDirectAuto(false)}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-[11px] font-medium border border-white/5 transition cursor-pointer"
+                    >
+                      <Play className="w-3 h-3" />
+                      <span>O cargar embed directamente tal cual (sin inspección previa)</span>
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -418,39 +449,52 @@ export const StreamInput: React.FC<StreamInputProps> = ({
                     <span className="text-[10px] text-slate-400 font-mono">Selecciona uno para cargar</span>
                   </div>
 
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                     {resolvedCandidates.map((candidate, idx) => (
                       <div
                         key={candidate.id || idx}
-                        className="p-2.5 rounded-lg bg-[#14161b] border border-white/10 hover:border-emerald-500/60 transition flex items-center justify-between gap-3 text-xs"
+                        className="p-2.5 rounded-lg bg-[#14161b] border border-white/10 hover:border-emerald-500/60 transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs"
                       >
-                        <div className="min-w-0 flex-1 space-y-0.5">
-                          <div className="flex items-center gap-1.5">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <span className="text-[11px] font-bold text-white truncate">
                               {candidate.title || candidate.sourceHostname}
                             </span>
-                            <span
-                              className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase ${
-                                candidate.confidence === 'high'
-                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                              }`}
-                            >
-                              {candidate.confidence === 'high' ? 'Alta Confianza' : 'Candidato'}
-                            </span>
+                            {candidate.isDirectMedia ? (
+                              candidate.isVerifiedAccessible ? (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                  HLS Directo (Audio Controlable)
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  Fuente Protegida (Token CDN)
+                                </span>
+                              )
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                Reproductor Interno (Audio Externo)
+                              </span>
+                            )}
+                            {candidate.depth !== undefined && candidate.depth > 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-white/5 text-slate-400 border border-white/10">
+                                Nivel {candidate.depth}
+                              </span>
+                            )}
                           </div>
                           <p className="text-[10px] text-slate-400 font-mono truncate">
                             {candidate.url}
                           </p>
                           {candidate.note && (
-                            <p className="text-[10px] text-slate-500">{candidate.note}</p>
+                            <p className="text-[10px] text-slate-400 leading-normal">
+                              {candidate.note}
+                            </p>
                           )}
                         </div>
 
                         <button
                           type="button"
                           onClick={() => handleSelectCandidate(candidate)}
-                          className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-sm cursor-pointer"
+                          className="shrink-0 w-full sm:w-auto flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition shadow-sm cursor-pointer"
                         >
                           <Play className="w-3 h-3 fill-current" />
                           <span>Usar este</span>
@@ -458,6 +502,58 @@ export const StreamInput: React.FC<StreamInputProps> = ({
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Diagnostic Steps Accordion */}
+              {diagnosticSteps.length > 0 && (
+                <div className="rounded-xl bg-[#101114] border border-white/10 overflow-hidden text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setIsDiagnosticsOpen((v) => !v)}
+                    className="w-full flex items-center justify-between p-2.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition font-mono text-[11px] cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Diagnóstico de Inspección ({diagnosticSteps.length} eventos)</span>
+                    </span>
+                    {isDiagnosticsOpen ? (
+                      <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                    )}
+                  </button>
+                  {isDiagnosticsOpen && (
+                    <div className="p-3 space-y-1.5 max-h-44 overflow-y-auto font-mono text-[10px] border-t border-white/5 bg-black/60">
+                      {diagnosticSteps.map((step, idx) => {
+                        const isSuccess =
+                          step.includes('accesible') ||
+                          step.includes('Final') ||
+                          step.includes('¡Fuente');
+                        const isWarn =
+                          step.includes('protegida') ||
+                          step.includes('403') ||
+                          step.includes('incontrolable');
+                        const isLevel = step.startsWith('[Nivel');
+                        return (
+                          <div
+                            key={idx}
+                            className={`leading-relaxed ${
+                              isSuccess
+                                ? 'text-emerald-400'
+                                : isWarn
+                                ? 'text-amber-400'
+                                : isLevel
+                                ? 'text-cyan-300'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {step}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -485,8 +581,8 @@ export const StreamInput: React.FC<StreamInputProps> = ({
                 </div>
               )}
 
-              {/* Direct confirm button for non-web pages (Direct media, YouTube, Embed) or Direct Web Page Frame */}
-              {!isAutoWebPage && autoUrl.trim() && (
+              {/* Direct confirm button for non-resolvable pages (Direct media, YouTube, Twitch, Vimeo) */}
+              {!canResolve && autoUrl.trim() && (
                 <button
                   type="button"
                   onClick={() => handleConfirmDirectAuto(false)}

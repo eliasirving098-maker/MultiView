@@ -15,6 +15,8 @@ export async function resolveEmbedCandidates(pageUrl: string): Promise<{
   candidates: EmbedCandidate[];
   pageTitle?: string;
   pageUrl?: string;
+  diagnosticSteps?: string[];
+  selectedCandidate?: EmbedCandidate;
   reason?: string;
 }> {
   try {
@@ -28,6 +30,7 @@ export async function resolveEmbedCandidates(pageUrl: string): Promise<{
       return {
         success: false,
         candidates: [],
+        diagnosticSteps: [`Error HTTP ${res.status}: ${res.statusText}`],
         reason: `Error HTTP ${res.status}: ${res.statusText}`,
       };
     }
@@ -38,12 +41,15 @@ export async function resolveEmbedCandidates(pageUrl: string): Promise<{
       candidates: data.candidates || [],
       pageTitle: data.pageTitle,
       pageUrl: data.pageUrl || pageUrl,
+      diagnosticSteps: data.diagnosticSteps || [],
+      selectedCandidate: data.selectedCandidate,
       reason: data.reason,
     };
   } catch (err: any) {
     return {
       success: false,
       candidates: [],
+      diagnosticSteps: [`Error de red al conectar con el resolvedor: ${err?.message || 'Error'}`],
       reason: `No se pudo conectar con el servicio de resolución: ${err?.message || 'Error de red'}`,
     };
   }
@@ -519,6 +525,13 @@ export const SAMPLE_STREAMS = [
     url: 'https://play.aurasportsplayer.cfd/event/espn-401873036',
     type: 'iframe-embed' as StreamType,
     badge: 'AuraSports Embed',
+  },
+  {
+    name: 'StreamEC Embed CH-31 (streamec.st)',
+    category: 'Embed',
+    url: 'https://streamec.st/embed/ch31.php',
+    type: 'iframe-embed' as StreamType,
+    badge: 'Caso Streamec',
   },
   {
     name: 'StreamEC Embed CH-32 (streamec.st)',

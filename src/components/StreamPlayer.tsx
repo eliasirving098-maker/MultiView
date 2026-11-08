@@ -36,10 +36,14 @@ export const StreamPlayer: React.FC<StreamPlayerProps> = ({
   onEditUrl,
   onReplaceUrl,
 }) => {
-  // Determine effective player type, prioritizing iframe-embed if slot.embedUrl is present
+  // Determine effective player type, respecting native media types (hls, html5, dash, youtube, twitch, vimeo)
   const effectiveType: StreamType =
     slot.manualOverrideType ||
-    (slot.embedUrl ? 'iframe-embed' : slot.type);
+    (slot.type && slot.type !== 'unsupported'
+      ? slot.type
+      : slot.embedUrl
+      ? 'iframe-embed'
+      : 'unsupported');
 
   // Watchdog Timer (8 seconds): strictly avoid infinite loading
   useEffect(() => {

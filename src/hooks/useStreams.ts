@@ -23,6 +23,8 @@ export interface AddStreamOptions {
   resolutionMethod?: ResolutionMethod;
   resolutionStatus?: ResolutionStatus;
   candidateEmbeds?: EmbedCandidate[];
+  diagnosticSteps?: string[];
+  isDirectMedia?: boolean;
   customIframeAttributes?: any;
   title?: string;
 }
@@ -111,7 +113,26 @@ export function useStreams(initialCount?: number) {
       setSlots((prev) => {
         const updated = [...prev];
         if (index >= 0 && index < updated.length) {
-          const finalType = manualOverrideType || (options?.embedUrl ? 'iframe-embed' : detected.type);
+          const isDirectMediaCandidate =
+            options?.isDirectMedia ||
+            manualOverrideType === 'hls' ||
+            manualOverrideType === 'html5' ||
+            manualOverrideType === 'dash';
+
+          const finalType: StreamType =
+            manualOverrideType ||
+            (options?.isDirectMedia
+              ? (options.embedUrl?.includes('.m3u8') ? 'hls' : 'html5')
+              : options?.embedUrl
+              ? 'iframe-embed'
+              : detected.type);
+
+          const finalClassification = isDirectMediaCandidate
+            ? 'direct-media'
+            : options?.embedUrl
+            ? 'iframe-embed'
+            : detected.classification;
+
           const finalSandboxMode: SandboxMode = sandboxMode || detected.sandboxMode || 'no-sandbox';
           const finalUrl = options?.embedUrl || detected.embedUrl || rawUrl;
           const finalTitle = options?.title || detected.title || `Canal ${index + 1}`;
@@ -125,11 +146,12 @@ export function useStreams(initialCount?: number) {
               options?.embedUrl || detected.embedUrl || (finalType === 'iframe-embed' ? finalUrl : undefined),
             title: finalTitle,
             type: finalType,
-            classification: options?.embedUrl ? 'iframe-embed' : detected.classification,
+            classification: finalClassification,
             resolutionMethod:
               options?.resolutionMethod || (options?.embedUrl ? 'manual-embed' : detected.resolutionMethod),
             resolutionStatus: options?.resolutionStatus || 'resolved',
             candidateEmbeds: options?.candidateEmbeds,
+            diagnosticSteps: options?.diagnosticSteps,
             customIframeAttributes: options?.customIframeAttributes || detected.customIframeAttributes,
             manualOverrideType,
             sandboxMode: finalSandboxMode,
